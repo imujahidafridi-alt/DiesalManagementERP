@@ -92,16 +92,27 @@ export class DriverService {
     endDate: string | null
     openingBalance: number
     closingBalance: number
+    totalQtyIn: number
+    totalQtyOut: number
+    averageBuyCost: number
     lines: any[]
   }> {
     const driver = await driverRepo.getById(driverId)
     if (!driver) throw new Error(`Driver not found: ${driverId}`)
 
-    // Fetch chronological transactions involving this driver directly
+    // Fetch transactions involving this driver directly
     const txs = await txRepo.listByEntity(driverId)
-    const chronologicalTxs = [...txs].reverse()
+    
+    // Sort transactions by Transaction Date, then by Creation Time (createdAt) ascending
+    const sortedTxs = [...txs].sort((a, b) => {
+      if (a.transactionDate !== b.transactionDate) {
+        return a.transactionDate.localeCompare(b.transactionDate)
+      }
+      return a.createdAt.localeCompare(b.createdAt)
+    })
 
     const lines: any[] = []
+    let openingBalance = 0
     let runningBalance = 0
 
     // Fetch names dynamically in batch to avoid N+1 query overheads
@@ -125,28 +136,22 @@ export class DriverService {
     const start = filters?.startDate || null
     const end = filters?.endDate || null
 
-    for (const tx of chronologicalTxs) {
+    for (const tx of sortedTxs) {
       if (tx.deletedAt) continue
 
       const isDest = tx.destinationId === driverId
       const delta = isDest ? tx.quantity : -tx.quantity
       const currentTxDate = tx.transactionDate
 
-      let isBeforeRange = false
-      if (start && currentTxDate < start) isBeforeRange = true
-
-      let isAfterRange = false
-      if (end && currentTxDate > end) isAfterRange = true
-
-      if (isBeforeRange) {
+      if (start && currentTxDate < start) {
+        openingBalance += delta
         runningBalance += delta
         continue
       }
 
-      if (isAfterRange) {
+      if (end && currentTxDate > end) {
         continue
       }
-
 
       runningBalance += delta
 
@@ -157,17 +162,33 @@ export class DriverService {
         transactionDate: tx.transactionDate,
         partyName: isDest ? getEntityName(tx.sourceType, tx.sourceId) : getEntityName(tx.destinationType, tx.destinationId),
         volume: tx.quantity,
+        quantity: tx.quantity,
+        qtyIn: isDest ? tx.quantity : 0,
+        qtyOut: !isDest ? tx.quantity : 0,
         unitCost: tx.unitCost,
         sellingRate: tx.sellingRate,
+        averageCostSnapshot: tx.averageCostSnapshot,
         referenceNumber: tx.referenceNumber,
         notes: tx.notes,
         runningBalance: runningBalance,
         isDest,
+        sourceId: tx.sourceId,
+        destinationId: tx.destinationId,
+        sourceType: tx.sourceType,
+        destinationType: tx.destinationType,
       })
     }
 
-    const openingBalance = lines.length > 0 ? (lines[lines.length - 1].runningBalance - (lines[lines.length - 1].isDest ? lines[lines.length - 1].volume : -lines[lines.length - 1].volume)) : runningBalance
-    const closingBalance = runningBalance
+    // Compute average buy cost from purchases in the selected range
+    let totalPurchaseQty = 0
+    let totalPurchaseAmount = 0
+    for (const line of lines) {
+      if (line.transactionType === 'PURCHASE') {
+        totalPurchaseQty += line.qtyIn
+        totalPurchaseAmount += line.qtyIn * line.unitCost
+      }
+    }
+    const averageBuyCost = totalPurchaseQty > 0 ? Math.round(totalPurchaseAmount / totalPurchaseQty) : 0
 
     return {
       driverName: driver.name,
@@ -175,7 +196,10 @@ export class DriverService {
       startDate: start,
       endDate: end,
       openingBalance,
-      closingBalance,
+      closingBalance: runningBalance,
+      totalQtyIn: lines.reduce((acc, l) => acc + l.qtyIn, 0),
+      totalQtyOut: lines.reduce((acc, l) => acc + l.qtyOut, 0),
+      averageBuyCost,
       lines: lines.reverse(), // reverse back to descending chronological order
     }
   }

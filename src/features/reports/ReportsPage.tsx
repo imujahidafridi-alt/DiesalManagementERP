@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { Button, DataGrid, useShortcutEffect, Select } from '@/components/ui'
 import { useUiStore, useAppStore } from '@/store'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
+import { FormattingService } from '@/utils/FormattingService'
+import { PdfService } from '@/utils/PdfService'
 import {
   FileSpreadsheet,
   Printer,
@@ -198,7 +200,7 @@ export default function ReportsPage() {
   // ----------------------------------------------------
   // Execute Queries from Report Service
   // ----------------------------------------------------
-  const runReport = async () => {
+  const runReport = async (showToast: boolean = false) => {
     setLoading(true)
     try {
       let data: any[] = []
@@ -359,7 +361,9 @@ export default function ReportsPage() {
       }
 
       setReportData(data)
-      addToast('Report updated successfully', 'success')
+      if (showToast) {
+        addToast('Report updated successfully', 'success')
+      }
     } catch (e: any) {
       addToast(e.message || 'Failed to generate report', 'error')
     } finally {
@@ -369,11 +373,11 @@ export default function ReportsPage() {
 
   // Load report on filter/category changes
   useEffect(() => {
-    runReport()
+    runReport(false)
   }, [selectedCat])
 
   // Short cut for run report (Ctrl+R)
-  useShortcutEffect('refresh', runReport)
+  useShortcutEffect('refresh', () => runReport(true))
 
   // ----------------------------------------------------
   // Dynamic Columns Mapping
@@ -642,8 +646,8 @@ export default function ReportsPage() {
 
     return {
       volume,
-      amount: amount / 100, // to dollars
-      profit: profit / 100, // to dollars
+      amount, // in cents
+      profit, // in cents
       count,
     }
   }, [reportData])
@@ -721,6 +725,29 @@ export default function ReportsPage() {
     link.setAttribute('download', `report-${selectedCat}-${new Date().toISOString().split('T')[0]}.xls`)
     link.click()
     addToast('Excel Spreadsheet exported', 'success')
+  }
+
+  const handleExportPDF = () => {
+    if (reportData.length === 0) {
+      addToast('No data available to export', 'error')
+      return
+    }
+
+    try {
+      PdfService.generateReportPDF(selectedCat, reportData, {
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        companyName: 'Malak Enterprise',
+        drivers,
+        customers,
+        suppliers,
+        profitSummary: profitSummary || undefined,
+        operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+      })
+      addToast('PDF report downloaded', 'success')
+    } catch (e: any) {
+      addToast(e.message || 'Failed to export PDF', 'error')
+    }
   }
 
   // ----------------------------------------------------
@@ -894,6 +921,11 @@ export default function ReportsPage() {
               <span>Excel</span>
             </Button>
 
+            <Button variant="outline" size="sm" onClick={handleExportPDF} className="gap-1.5" title="Export to PDF">
+              <Download size={12} className="rotate-180" />
+              <span>PDF</span>
+            </Button>
+
             <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5">
               <Printer size={12} />
               <span>Print A4</span>
@@ -1035,7 +1067,7 @@ export default function ReportsPage() {
               <input
                 type="number"
                 step="0.01"
-                placeholder="Min $"
+                placeholder={`Min ${symbol}`}
                 className="w-1/2 px-1.5 py-1 text-[11px] bg-gray-50 border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 value={minRate}
                 onChange={(e) => setMinRate(e.target.value)}
@@ -1043,7 +1075,7 @@ export default function ReportsPage() {
               <input
                 type="number"
                 step="0.01"
-                placeholder="Max $"
+                placeholder={`Max ${symbol}`}
                 className="w-1/2 px-1.5 py-1 text-[11px] bg-gray-50 border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 value={maxRate}
                 onChange={(e) => setMaxRate(e.target.value)}
@@ -1074,7 +1106,7 @@ export default function ReportsPage() {
               Clear Filters
             </Button>
             
-            <Button variant="primary" size="sm" onClick={runReport} className="w-full gap-1.5">
+            <Button variant="primary" size="sm" onClick={() => runReport(true)} className="w-full gap-1.5">
               <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
               <span>Apply</span>
             </Button>
@@ -1082,44 +1114,44 @@ export default function ReportsPage() {
         </div>
 
         {/* 3. Summary Cards (Always Visible, formatted nicely on print) */}
-        <div className="p-4 border-b bg-gray-50/50 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-sm print:bg-transparent print:border-b-2">
+        <div className="p-4 border-b bg-gray-50/50 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-sm print:bg-transparent print:border-b-2 font-mono">
           {selectedCat === 'profit_analysis' && profitSummary ? (
             <>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Total Volume Sold</span>
-                <p className="text-sm font-black text-gray-800">{profitSummary.totalQuantitySold.toLocaleString()} L</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Volume Sold</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(profitSummary.totalQuantitySold)}</p>
               </div>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Total Revenue Value</span>
-                <p className="text-sm font-black text-green-700">${(profitSummary.revenue / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Revenue Value</span>
+                <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(profitSummary.revenue)}</p>
               </div>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Net COGS Cost</span>
-                <p className="text-sm font-black text-gray-800">${(profitSummary.cost / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Net COGS Cost</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatCurrency(profitSummary.cost)}</p>
               </div>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Gross Margin Profit</span>
-                <p className="text-sm font-black text-emerald-700">${(profitSummary.grossProfit / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[10px] text-gray-400 font-normal">({profitSummary.averageMargin}%)</span></p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Gross Margin Profit</span>
+                <p className="text-sm font-black text-emerald-700">{FormattingService.formatCurrency(profitSummary.grossProfit)} <span className="text-[10px] text-gray-400 font-normal">({profitSummary.averageMargin}%)</span></p>
               </div>
             </>
           ) : (
             <>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Records Loaded</span>
-                <p className="text-sm font-black text-gray-800">{summaryAggregates.count}</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Records Loaded</span>
+                <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
               </div>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Aggregated Volume</span>
-                <p className="text-sm font-black text-gray-800">{summaryAggregates.volume.toLocaleString()} L</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Aggregated Volume</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
               </div>
               <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400">Financial Value</span>
-                <p className="text-sm font-black text-blue-700">${summaryAggregates.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans font-sans">Financial Value</span>
+                <p className="text-sm font-black text-blue-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
               </div>
               {summaryAggregates.profit > 0 && (
                 <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                  <span className="text-[9px] uppercase font-bold text-gray-400">Estimated Margins</span>
-                  <p className="text-sm font-black text-emerald-700">${summaryAggregates.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                  <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Estimated Margins</span>
+                  <p className="text-sm font-black text-emerald-700">{FormattingService.formatCurrency(summaryAggregates.profit)}</p>
                 </div>
               )}
             </>

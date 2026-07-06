@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { useUiStore } from '@/store'
 
 interface ShortcutProviderProps {
@@ -86,9 +86,15 @@ export function useShortcutEffect(
   event: 'new' | 'save' | 'refresh' | 'escape' | 'export' | 'print',
   callback: () => void
 ) {
+  const callbackRef = useRef(callback)
+  
   useEffect(() => {
-    const handler = () => callback()
+    callbackRef.current = callback
+  }, [callback])
+
+  useEffect(() => {
+    const handler = () => callbackRef.current()
     window.addEventListener(`app-shortcut-${event}`, handler)
     return () => window.removeEventListener(`app-shortcut-${event}`, handler)
-  }, [event, callback])
+  }, [event])
 }

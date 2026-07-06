@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAppStore, useUiStore } from '@/store'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
+import { FormattingService } from '@/utils/FormattingService'
+import { PdfService } from '@/utils/PdfService'
 import {
   Button,
   Select,
@@ -18,6 +20,7 @@ import {
   FileText,
   Printer,
   X,
+  Download,
 } from 'lucide-react'
 
 interface CustomerFormData {
@@ -240,6 +243,19 @@ export default function CustomersPage() {
 
   const handlePrint = () => {
     window.print()
+  }
+
+  const handleExportPDF = () => {
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    PdfService.generateReportPDF('customer_ledger_detail', statementReport.lines, {
+      startDate,
+      endDate,
+      companyName: 'Malak Enterprise',
+      title: 'Customer Ledger Statement',
+      partyName: statementReport.companyName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+    })
   }
 
   // Register shortcuts
@@ -532,7 +548,7 @@ export default function CustomersPage() {
       {/* Printable Statement Modal */}
       {isStatementOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 print:bg-white print:inset-auto print:static">
-          <div className="bg-white border rounded-lg shadow-2xl w-[900px] h-[600px] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
+          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-6xl h-[85vh] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b pb-2 print:hidden select-none">
               <div className="space-y-0.5">
@@ -542,9 +558,13 @@ export default function CustomersPage() {
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
                   <Printer size={13} />
-                  <span>Print Statement</span>
+                  <span>Print</span>
                 </Button>
-                <button onClick={() => setIsStatementOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <Button variant="primary" size="sm" onClick={handleExportPDF} className="gap-2">
+                  <Download size={13} />
+                  <span>Export PDF</span>
+                </Button>
+                <button onClick={() => setIsStatementOpen(false)} className="text-gray-400 hover:text-gray-600 ml-1">
                   <X size={16} />
                 </button>
               </div>
@@ -582,7 +602,7 @@ export default function CustomersPage() {
                 Aggregating customer accounts transactions...
               </div>
             ) : statementReport ? (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-4">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
                 {/* Print Header */}
                 <div className="border-b-2 pb-3">
                   <div className="flex justify-between items-start">
@@ -601,16 +621,16 @@ export default function CustomersPage() {
                 {/* Lifetime Widget summaries */}
                 <div className="grid grid-cols-4 gap-4 bg-gray-50 border p-3 rounded">
                   <div className="text-center border-r">
-                    <span className="text-[9px] uppercase font-bold text-gray-400">Lifetime Gallons</span>
-                    <p className="text-xs font-bold text-gray-800">{statementReport.summary.lifetimeVolume.toLocaleString()} L</p>
+                    <span className="text-[9px] uppercase font-bold text-gray-400">Lifetime Volume</span>
+                    <p className="text-xs font-bold text-gray-800">{FormattingService.formatQuantity(statementReport.summary.lifetimeVolume)}</p>
                   </div>
                   <div className="text-center border-r">
                     <span className="text-[9px] uppercase font-bold text-gray-400">Lifetime Purchases</span>
-                    <p className="text-xs font-bold text-gray-800">${(statementReport.summary.lifetimeAmount / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <p className="text-xs font-bold text-gray-800">{FormattingService.formatCurrency(statementReport.summary.lifetimeAmount)}</p>
                   </div>
                   <div className="text-center border-r">
                     <span className="text-[9px] uppercase font-bold text-gray-400">Avg Purchase Rate</span>
-                    <p className="text-xs font-bold text-blue-600">${(statementReport.summary.averagePrice / 100).toFixed(4)}/L</p>
+                    <p className="text-xs font-bold text-blue-600">{FormattingService.formatRate(statementReport.summary.averagePrice)}</p>
                   </div>
                   <div className="text-center">
                     <span className="text-[9px] uppercase font-bold text-gray-400">Last Purchase Date</span>
@@ -621,18 +641,18 @@ export default function CustomersPage() {
                 {/* Ledger Balances Widget */}
                 <div className="grid grid-cols-3 gap-4 bg-blue-50/50 border border-blue-200 p-3 rounded">
                   <div className="text-center border-r border-blue-200">
-                    <span className="text-[9px] uppercase font-bold text-blue-500">Opening Balance (Dollars)</span>
-                    <p className="text-sm font-bold text-blue-900">${(statementReport.openingBalance / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <span className="text-[9px] uppercase font-bold text-blue-500">Opening Balance ({symbol})</span>
+                    <p className="text-sm font-bold text-blue-900">{FormattingService.formatCurrency(statementReport.openingBalance)}</p>
                   </div>
                   <div className="text-center border-r border-blue-200">
                     <span className="text-[9px] uppercase font-bold text-blue-500">Net Period Activity</span>
                     <p className="text-sm font-bold text-blue-700">
-                      ${((statementReport.closingBalance - statementReport.openingBalance) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      {FormattingService.formatCurrency(statementReport.closingBalance - statementReport.openingBalance)}
                     </p>
                   </div>
                   <div className="text-center">
-                    <span className="text-[9px] uppercase font-bold text-blue-500">Closing Balance (Dollars)</span>
-                    <p className="text-sm font-bold text-blue-900">${(statementReport.closingBalance / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                    <span className="text-[9px] uppercase font-bold text-blue-500">Closing Balance ({symbol})</span>
+                    <p className="text-sm font-bold text-blue-900">{FormattingService.formatCurrency(statementReport.closingBalance)}</p>
                   </div>
                 </div>
 

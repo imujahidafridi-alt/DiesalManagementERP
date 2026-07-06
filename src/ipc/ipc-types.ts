@@ -261,6 +261,7 @@ export interface IpcChannelMap {
   'settings:get': { args: []; return: Record<string, string> }
   'settings:save': { args: [values: Record<string, string>, user: string]; return: boolean }
   'import:execute': { args: [entityType: string, rows: any[], user: string]; return: { imported: number; skipped: number; failed: number; executionTimeMs: number; errors: string[] } }
+  'import:smartExecute': { args: [records: any[], user: string, autoCreateMasters: boolean]; return: { imported: number; errors: string[] } }
   'app:reboot': { args: []; return: void }
   'app:exportDiagnostics': { args: []; return: string }
   'logger:write': { args: [log: { level: 'info' | 'warn' | 'error' | 'critical'; message: string; errorStack?: string }]; return: void }

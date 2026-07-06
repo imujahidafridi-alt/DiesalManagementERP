@@ -166,6 +166,7 @@ handleIpc('settings:save', async (values: Record<string, string>, user: string) 
 
 // 12. Data Imports
 handleIpc('import:execute', async (entityType: string, rows: any[], user: string) => ImportService.importRecords(entityType, rows, user))
+handleIpc('import:smartExecute', async (records: any[], user: string, autoCreateMasters: boolean) => ImportService.importSmartRecords(records, user, autoCreateMasters))
 
 // 13. System Actions
 handleIpc('app:reboot', async () => {

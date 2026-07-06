@@ -3,6 +3,7 @@ import { transactions, drivers, customers, auditLogs } from '../schema/schema'
 import { isNull, desc, asc } from 'drizzle-orm'
 import { Transaction } from '../repositories/interfaces'
 import { InventoryService } from './InventoryService'
+import { SettingsService } from './SettingsService'
 
 export interface ReportFilters {
   startDate?: string
@@ -423,6 +424,8 @@ export class ReportService {
       }
     }
     // 2. Check for negative stocks in drivers dynamically
+    const globalSettings = await SettingsService.getSettings()
+    const unit = globalSettings.quantity_abbreviation || globalSettings.fuel_unit || 'Gal'
     const allDrivers = await db.select().from(drivers).where(isNull(drivers.deletedAt))
     for (const d of allDrivers) {
       const stock = await InventoryService.calculateInventory(d.id)
@@ -430,7 +433,7 @@ export class ReportService {
         exceptions.push({
           type: 'NEG_INVENTORY',
           severity: 'HIGH',
-          description: `Driver ${d.name} has a negative inventory balance of ${stock}L.`,
+          description: `Driver ${d.name} has a negative inventory balance of ${stock} ${unit}.`,
           transactionDate: new Date().toISOString().split('T')[0],
           refId: d.id,
         })

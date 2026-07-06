@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useAppStore, useUiStore } from '@/store'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
+import { PdfService } from '@/utils/PdfService'
 import {
   Button,
   Select,
@@ -19,6 +20,7 @@ import {
   FileText,
   Printer,
   X,
+  Download,
 } from 'lucide-react'
 
 interface DriverFormData {
@@ -66,7 +68,7 @@ export default function DriversPage() {
   const [statementLoading, setStatementLoading] = useState(false)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-
+  const [statementTab, setStatementTab] = useState<'inventory' | 'sales'>('inventory')
 
 
   const { activeLookupId, setActiveLookupId } = useUiStore()
@@ -202,6 +204,34 @@ export default function DriversPage() {
     window.print()
   }
 
+  const handleExportInventoryPDF = () => {
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    PdfService.generateReportPDF('driver_inventory_ledger_detail', statementReport.lines, {
+      startDate,
+      endDate,
+      companyName: 'Malak Enterprise',
+      title: 'Driver Inventory Ledger Statement',
+      partyName: statementReport.driverName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+    })
+  }
+
+  const handleExportSalesPDF = () => {
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    const salesLines = statementReport.lines.filter((l: any) => l.transactionType === 'SALE')
+
+    PdfService.generateReportPDF('driver_sales_ledger_detail', salesLines, {
+      startDate,
+      endDate,
+      companyName: 'Malak Enterprise',
+      title: 'Driver Sales Ledger Statement',
+      partyName: statementReport.driverName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+    })
+  }
+
   // Register Shortcuts
   useShortcutEffect('new', handleNew)
   useShortcutEffect('refresh', handleRefresh)
@@ -228,26 +258,143 @@ export default function DriversPage() {
 
   // Columns for modal statement lines
   const statementColumns = useMemo((): GridColumn<any>[] => [
-    { key: 'transactionNumber', header: 'Tx Number', width: 100 },
     { key: 'transactionDate', header: 'Date', width: 90 },
-    { key: 'transactionType', header: 'Type', width: 100 },
-    { key: 'sourceName', header: 'Source', width: 130 },
-    { key: 'destinationName', header: 'Destination', width: 130 },
-    { key: 'quantity', header: `Volume (${unit})`, width: 95, type: 'number' },
+    { key: 'transactionNumber', header: 'Tx Number', width: 100 },
+    {
+      key: 'transactionType',
+      header: 'Type',
+      width: 100,
+      render: (row) => {
+        if (row.transactionType === 'TRANSFER') {
+          return row.qtyIn > 0 ? 'Transfer In' : 'Transfer Out'
+        }
+        if (row.transactionType === 'PURCHASE') return 'Purchase'
+        if (row.transactionType === 'SALE') return 'Sale'
+        if (row.transactionType === 'RETURN') return 'Return'
+        if (row.transactionType === 'ADJUSTMENT') return 'Adjustment'
+        return row.transactionType
+      }
+    },
+    { key: 'partyName', header: 'Source/Destination', width: 150 },
+    {
+      key: 'qtyIn',
+      header: `Qty In (${unit})`,
+      width: 95,
+      render: (row) => row.qtyIn > 0 ? FormattingService.formatQuantity(row.qtyIn) : '-'
+    },
+    {
+      key: 'qtyOut',
+      header: `Qty Out (${unit})`,
+      width: 95,
+      render: (row) => row.qtyOut > 0 ? FormattingService.formatQuantity(row.qtyOut) : '-'
+    },
     {
       key: 'rate',
       header: 'Rate/Cost',
-      width: 90,
-      render: (row) =>
-        row.transactionType === 'SALE'
-          ? FormattingService.formatCurrency(row.sellingRate)
-          : row.unitCost > 0
-          ? FormattingService.formatCurrency(row.unitCost)
-          : '-',
+      width: 95,
+      render: (row) => {
+        const rate = row.transactionType === 'SALE' ? row.sellingRate : (row.averageCostSnapshot || row.unitCost || 0)
+        return rate > 0 ? FormattingService.formatRate(rate) : '-'
+      }
     },
-    { key: 'referenceNumber', header: 'Ref Num', width: 95 },
-    { key: 'runningBalance', header: `Running Bal (${unit})`, width: 110, type: 'number' },
+    {
+      key: 'referenceNumber',
+      header: 'Vehicle No',
+      width: 95,
+      render: (row) => row.transactionType === 'PURCHASE' ? (row.referenceNumber || '-') : '-'
+    },
+    {
+      key: 'runningBalance',
+      header: `Running Bal (${unit})`,
+      width: 110,
+      render: (row) => FormattingService.formatQuantity(row.runningBalance)
+    },
   ], [unit, symbol])
+
+  const salesColumns = useMemo((): GridColumn<any>[] => [
+    { key: 'transactionDate', header: 'Date', width: 90 },
+    { key: 'transactionNumber', header: 'Voucher No', width: 100 },
+    { key: 'partyName', header: 'Customer', width: 150 },
+    {
+      key: 'volume',
+      header: `Sold Volume (${unit})`,
+      width: 95,
+      render: (row) => FormattingService.formatQuantity(row.volume || row.quantity || 0)
+    },
+    {
+      key: 'sellingRate',
+      header: 'Sale Price',
+      width: 95,
+      render: (row) => FormattingService.formatRate(row.sellingRate || 0)
+    },
+    {
+      key: 'averageCostSnapshot',
+      header: 'Buy Cost',
+      width: 95,
+      render: (row) => FormattingService.formatRate(row.averageCostSnapshot || row.unitCost || 0)
+    },
+    {
+      key: 'profitPerUnit',
+      header: 'Profit per Unit',
+      width: 100,
+      render: (row) => {
+        const buyCost = row.averageCostSnapshot || row.unitCost || 0
+        const profit = (row.sellingRate || 0) - buyCost
+        return FormattingService.formatRate(profit)
+      }
+    },
+    {
+      key: 'saleAmount',
+      header: 'Sale Amount',
+      width: 110,
+      render: (row) => {
+        const qty = row.volume || row.quantity || 0
+        const amount = qty * (row.sellingRate || 0)
+        return FormattingService.formatCurrency(amount)
+      }
+    },
+    {
+      key: 'totalProfit',
+      header: 'Total Profit',
+      width: 110,
+      render: (row) => {
+        const qty = row.volume || row.quantity || 0
+        const buyCost = row.averageCostSnapshot || row.unitCost || 0
+        const profit = qty * ((row.sellingRate || 0) - buyCost)
+        return FormattingService.formatCurrency(profit)
+      }
+    },
+  ], [unit, symbol])
+
+  const salesLines = useMemo(() => {
+    if (!statementReport || !statementReport.lines) return []
+    return statementReport.lines.filter((l: any) => l.transactionType === 'SALE' && (l.volume || l.quantity || 0) > 0)
+  }, [statementReport])
+
+  const salesSummary = useMemo(() => {
+    let totalVol = 0
+    let totalSales = 0
+    let totalCost = 0
+    let totalProfit = 0
+
+    salesLines.forEach((row: any) => {
+      const qty = row.volume || row.quantity || 0
+      const salePrice = row.sellingRate || 0
+      const buyCost = row.averageCostSnapshot || row.unitCost || 0
+      
+      totalVol += qty
+      totalSales += qty * salePrice
+      totalCost += qty * buyCost
+      totalProfit += qty * (salePrice - buyCost)
+    })
+
+    return {
+      totalVol,
+      totalSales,
+      totalCost,
+      totalProfit,
+    }
+  }, [salesLines])
 
   return (
     <div className="space-y-4">
@@ -450,7 +597,7 @@ export default function DriversPage() {
       {/* Printable Statement Modal */}
       {isStatementOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 print:bg-white print:inset-auto print:static">
-          <div className="bg-white border rounded-lg shadow-2xl w-[900px] h-[600px] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
+          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-6xl h-[85vh] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
             {/* Modal Header (Hidden on print) */}
             <div className="flex items-center justify-between border-b pb-2 print:hidden select-none">
               <div className="space-y-0.5">
@@ -460,12 +607,44 @@ export default function DriversPage() {
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
                   <Printer size={13} />
-                  <span>Print Statement</span>
+                  <span>Print</span>
                 </Button>
-                <button onClick={() => setIsStatementOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <Button variant="primary" size="sm" onClick={handleExportInventoryPDF} className="gap-2">
+                  <Download size={13} />
+                  <span>Inventory PDF</span>
+                </Button>
+                <Button variant="primary" size="sm" onClick={handleExportSalesPDF} className="gap-2">
+                  <Download size={13} />
+                  <span>Sales PDF</span>
+                </Button>
+                <button onClick={() => setIsStatementOpen(false)} className="text-gray-400 hover:text-gray-600 ml-1">
                   <X size={16} />
                 </button>
               </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b print:hidden select-none">
+              <button
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${
+                  statementTab === 'inventory'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setStatementTab('inventory')}
+              >
+                Inventory Statement (Stock Movement)
+              </button>
+              <button
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${
+                  statementTab === 'sales'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setStatementTab('sales')}
+              >
+                Sales Statement (Profit Margin)
+              </button>
             </div>
 
             {/* Date Filtering (Hidden on print) */}
@@ -500,13 +679,15 @@ export default function DriversPage() {
                 Querying database ledger entries...
               </div>
             ) : statementReport ? (
-              <div className="flex-1 flex flex-col min-h-0 overflow-y-auto space-y-4">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
                 {/* Print Title Block */}
                 <div className="border-b-2 pb-3">
                   <div className="flex justify-between items-start">
                     <div>
                       <h1 className="text-lg font-black text-gray-800 uppercase tracking-tight">Malak Enterprise ERP</h1>
-                      <p className="text-[10px] text-gray-400">Driver Ledger Statement Account Account Statement</p>
+                      <p className="text-[10px] text-gray-400">
+                        {statementTab === 'inventory' ? 'Driver Stock Ledger Statement' : 'Driver Sales Ledger Statement'}
+                      </p>
                     </div>
                     <div className="text-right text-xs">
                       <p><span className="text-gray-400">Driver:</span> <strong className="text-gray-700">{statementReport.driverName}</strong></p>
@@ -515,29 +696,74 @@ export default function DriversPage() {
                   </div>
                 </div>
 
-                {/* Balances summary widget */}
-                <div className="grid grid-cols-3 gap-4 bg-gray-50 border p-3 rounded">
-                  <div className="text-center border-r">
-                    <span className="text-[9px] uppercase font-bold text-gray-400">Opening Volume Balance</span>
-                    <p className="text-sm font-bold text-gray-800">{statementReport.openingBalance.toLocaleString()} {unit}</p>
+                {/* Summary cards section */}
+                {statementTab === 'inventory' ? (
+                  <div className="grid grid-cols-5 gap-4 bg-gray-50 border p-3 rounded">
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Opening Stock</span>
+                      <p className="text-sm font-bold text-gray-800">
+                        {FormattingService.formatQuantity(statementReport.openingBalance)}
+                      </p>
+                    </div>
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Qty In</span>
+                      <p className="text-sm font-bold text-green-700">
+                        {FormattingService.formatQuantity(statementReport.totalQtyIn || 0)}
+                      </p>
+                    </div>
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Qty Out</span>
+                      <p className="text-sm font-bold text-purple-700">
+                        {FormattingService.formatQuantity(statementReport.totalQtyOut || 0)}
+                      </p>
+                    </div>
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Closing Stock</span>
+                      <p className="text-sm font-bold text-gray-800">
+                        {FormattingService.formatQuantity(statementReport.closingBalance)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Average Buy Cost</span>
+                      <p className="text-sm font-bold text-blue-600">
+                        {statementReport.averageBuyCost > 0 ? FormattingService.formatRate(statementReport.averageBuyCost) : '-'}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-center border-r">
-                    <span className="text-[9px] uppercase font-bold text-gray-400">Net Volume Variance</span>
-                    <p className="text-sm font-bold text-blue-600">
-                      {(statementReport.closingBalance - statementReport.openingBalance).toLocaleString()} {unit}
-                    </p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-4 bg-gray-50 border p-3 rounded">
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Sold Volume</span>
+                      <p className="text-sm font-bold text-gray-800">
+                        {FormattingService.formatQuantity(salesSummary.totalVol)}
+                      </p>
+                    </div>
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Sales Amount</span>
+                      <p className="text-sm font-bold text-green-700">
+                        {FormattingService.formatCurrency(salesSummary.totalSales)}
+                      </p>
+                    </div>
+                    <div className="text-center border-r">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Cost</span>
+                      <p className="text-sm font-bold text-purple-700">
+                        {FormattingService.formatCurrency(salesSummary.totalCost)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Profit</span>
+                      <p className="text-sm font-bold text-blue-600">
+                        {FormattingService.formatCurrency(salesSummary.totalProfit)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <span className="text-[9px] uppercase font-bold text-gray-400">Closing Volume Balance</span>
-                    <p className="text-sm font-bold text-gray-800">{statementReport.closingBalance.toLocaleString()} {unit}</p>
-                  </div>
-                </div>
+                )}
 
                 {/* Transactions list */}
                 <div className="flex-1 min-h-0">
                   <DataGrid
-                    columns={statementColumns}
-                    data={statementReport.lines}
+                    columns={statementTab === 'inventory' ? statementColumns : salesColumns}
+                    data={statementTab === 'inventory' ? statementReport.lines : salesLines}
                   />
                 </div>
               </div>

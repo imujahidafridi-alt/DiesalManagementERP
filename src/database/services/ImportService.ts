@@ -3,7 +3,8 @@ import { drivers, customers, suppliers, transactions, inventory as inventoryTabl
 import crypto from 'crypto'
 import { generateNextTransactionNumber } from '../utils/numbering'
 import { Logger } from '../../utils/Logger'
-import { eq } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
+import { TransactionService } from './TransactionService'
 
 export interface ImportResult {
   imported: number
@@ -403,6 +404,389 @@ export class ImportService {
         executionTimeMs: Date.now() - startTime,
         errors: [e.message || 'Fatal database transaction error occurred'],
       }
+    }
+  }
+
+  static parseNormalizedDate(rawVal: any): string | null {
+    if (rawVal === undefined || rawVal === null) return null
+    const str = String(rawVal).trim()
+    if (!str) return null
+
+    // 1. Check if Excel date serial number
+    if (/^\d+(\.\d+)?$/.test(str)) {
+      const serial = parseFloat(str)
+      const date = new Date(Math.round((serial - 25569) * 86400 * 1000))
+      if (!isNaN(date.getTime())) {
+        return date.toISOString().split('T')[0]
+      }
+    }
+
+    // 2. Check if format is DD/MM/YYYY or D/M/YYYY
+    const dmyPattern = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/
+    const match = str.match(dmyPattern)
+    if (match) {
+      const day = parseInt(match[1], 10)
+      const month = parseInt(match[2], 10)
+      const year = parseInt(match[3], 10)
+      const date = new Date(year, month - 1, day)
+      if (!isNaN(date.getTime())) {
+        const y = String(year)
+        const m = String(month).padStart(2, '0')
+        const d = String(day).padStart(2, '0')
+        return `${y}-${m}-${d}`
+      }
+    }
+
+    const date = new Date(str)
+    if (!isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0]
+    }
+
+    return null
+  }
+
+  static detectRowType(row: any): 'PURCHASE' | 'TRANSFER' | 'SALE' | 'UNKNOWN' {
+    const qtyIn = parseFloat(row.qtyIn) || 0
+    const qtyOut = parseFloat(row.qtyOut) || 0
+    const fromTo = String(row.fromTo || '').trim()
+
+    if (qtyIn > 0 && qtyOut === 0 && !fromTo.toLowerCase().startsWith('to ')) {
+      return 'PURCHASE'
+    }
+    if (qtyOut > 0 && fromTo.toLowerCase().startsWith('to ')) {
+      return 'TRANSFER'
+    }
+    if (qtyOut > 0 && (!fromTo.toLowerCase().startsWith('to '))) {
+      return 'SALE'
+    }
+    return 'UNKNOWN'
+  }
+
+  static async importSmartRecords(
+    records: any[],
+    operator: string,
+    autoCreateMasters: boolean
+  ): Promise<{ imported: number; errors: string[] }> {
+    // startTime removed
+    const logStage = (stage: string, action: 'START' | 'END' | 'ERROR', detail?: string) => {
+      const ts = new Date().toISOString()
+      Logger.info(`[Import Wizard Stage] [${action}] ${stage} at ${ts}${detail ? ` - ${detail}` : ''}`)
+    }
+
+    logStage('1. Parse File', 'START')
+    logStage('1. Parse File', 'END')
+
+    logStage('2. Detect Workbook', 'START')
+    logStage('2. Detect Workbook', 'END')
+
+    logStage('3. Validate', 'START')
+    logStage('3. Validate', 'END')
+
+    let importedCount = 0
+
+    try {
+      await runInTransaction(async () => {
+        const now = new Date().toISOString()
+
+        logStage('4. Create Master Records', 'START')
+        const existingDrivers = await db.select().from(drivers)
+        const existingSuppliers = await db.select().from(suppliers)
+        const existingCustomers = await db.select().from(customers)
+
+        const driverNameMap = new Map(existingDrivers.map(d => [d.name.toLowerCase().trim(), d]))
+        const supplierNameMap = new Map(existingSuppliers.map(s => [s.companyName.toLowerCase().trim(), s]))
+        const customerNameMap = new Map(existingCustomers.map(c => [c.companyName.toLowerCase().trim(), c]))
+
+        const getStartSequence = async (type: string): Promise<number> => {
+          const matches = await db
+            .select({ transactionNumber: transactions.transactionNumber })
+            .from(transactions)
+            .where(eq(transactions.transactionType, type))
+            .orderBy(desc(transactions.transactionNumber))
+            .limit(1)
+          
+          if (matches.length > 0) {
+            const match = matches[0].transactionNumber.match(/\d+$/)
+            if (match) {
+              return parseInt(match[0], 10) + 1
+            }
+          }
+          return 1
+        }
+
+        let purchaseSeq = await getStartSequence('PURCHASE')
+        let saleSeq = await getStartSequence('SALE')
+        let transferSeq = await getStartSequence('TRANSFER')
+
+        logStage('4. Create Master Records', 'END')
+
+        logStage('5. Import Transactions', 'START')
+
+        for (const row of records) {
+          const rowNum = row.rowNumber || 0
+          const dateStr = ImportService.parseNormalizedDate(row.date) || ''
+          const vehicle = row.vehicle ? String(row.vehicle).trim() : undefined
+          const sourceFile = row.sourceFile || 'unknown'
+          const type = row.type
+
+          if (type === 'UNKNOWN') {
+            throw new Error(`Row ${rowNum}: Unknown transaction type`)
+          }
+
+          if (!dateStr || isNaN(Date.parse(dateStr))) {
+            throw new Error(`Row ${rowNum}: Invalid date format: ${dateStr}`)
+          }
+
+          const qtyIn = parseFloat(row.qtyIn) || 0
+          const qtyOut = parseFloat(row.qtyOut) || 0
+          const qty = type === 'PURCHASE' ? qtyIn : qtyOut
+          const rate = parseFloat(row.rate) || 0
+
+          if (qty <= 0) {
+            throw new Error(`Row ${rowNum}: Quantity must be positive. Found: ${qty}`)
+          }
+
+          if (type === 'PURCHASE') {
+            const driverInput = String(row.driverName || '').trim()
+            let driverObj = driverNameMap.get(driverInput.toLowerCase())
+            if (!driverObj && autoCreateMasters) {
+              const newDriverId = crypto.randomUUID()
+              driverObj = {
+                id: newDriverId,
+                name: driverInput,
+                phone: null,
+                address: null,
+                notes: 'Auto-created by Import Wizard',
+                status: 'ACTIVE',
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(drivers).values(driverObj)
+              driverNameMap.set(driverInput.toLowerCase(), driverObj)
+            }
+
+            const supplierInput = String(row.fromTo || '').trim()
+            let supplierObj = supplierNameMap.get(supplierInput.toLowerCase())
+            if (!supplierObj && autoCreateMasters) {
+              const newSupplierId = crypto.randomUUID()
+              supplierObj = {
+                id: newSupplierId,
+                companyName: supplierInput,
+                contactPerson: null,
+                phone: null,
+                address: null,
+                notes: 'Auto-created by Import Wizard',
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(suppliers).values(supplierObj)
+              supplierNameMap.set(supplierInput.toLowerCase(), supplierObj)
+            }
+
+            if (!driverObj || !supplierObj) {
+              throw new Error(`Row ${rowNum}: Driver/Supplier not resolved`)
+            }
+
+            const txNumber = `PUR-${String(purchaseSeq++).padStart(5, '0')}`
+
+            await db.insert(transactions).values({
+              id: crypto.randomUUID(),
+              transactionNumber: txNumber,
+              transactionType: 'PURCHASE',
+              sourceType: 'SUPPLIER',
+              sourceId: supplierObj.id,
+              destinationType: 'DRIVER',
+              destinationId: driverObj.id,
+              quantity: qty,
+              unitCost: Math.round(rate * 100),
+              sellingRate: 0,
+              averageCostSnapshot: 0,
+              profitSnapshot: 0,
+              referenceNumber: vehicle || null,
+              referenceType: vehicle ? 'VEHICLE_NO' : null,
+              transactionDate: dateStr,
+              notes: `Imported from ${sourceFile} Row ${rowNum}`,
+              createdBy: operator,
+              createdAt: now,
+              updatedAt: now,
+            })
+            importedCount++
+          }
+
+          else if (type === 'SALE') {
+            const driverInput = String(row.driverName || '').trim()
+            let driverObj = driverNameMap.get(driverInput.toLowerCase())
+            if (!driverObj && autoCreateMasters) {
+              const newDriverId = crypto.randomUUID()
+              driverObj = {
+                id: newDriverId,
+                name: driverInput,
+                phone: null,
+                address: null,
+                notes: 'Auto-created by Import Wizard',
+                status: 'ACTIVE',
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(drivers).values(driverObj)
+              driverNameMap.set(driverInput.toLowerCase(), driverObj)
+            }
+
+            const customerInput = String(row.fromTo || '').trim()
+            let customerObj = customerNameMap.get(customerInput.toLowerCase())
+            if (!customerObj && autoCreateMasters) {
+              const newCustomerId = crypto.randomUUID()
+              const payload = {
+                email: '',
+                taxNumber: '',
+                status: 'ACTIVE',
+                notes: 'Auto-created by Import Wizard',
+              }
+              customerObj = {
+                id: newCustomerId,
+                companyName: customerInput,
+                contactPerson: null,
+                phone: null,
+                address: null,
+                notes: JSON.stringify(payload),
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(customers).values(customerObj)
+              customerNameMap.set(customerInput.toLowerCase(), customerObj)
+            }
+
+            if (!driverObj || !customerObj) {
+              throw new Error(`Row ${rowNum}: Driver/Customer not resolved`)
+            }
+
+            const txNumber = `SAL-${String(saleSeq++).padStart(5, '0')}`
+
+            await db.insert(transactions).values({
+              id: crypto.randomUUID(),
+              transactionNumber: txNumber,
+              transactionType: 'SALE',
+              sourceType: 'DRIVER',
+              sourceId: driverObj.id,
+              destinationType: 'CUSTOMER',
+              destinationId: customerObj.id,
+              quantity: qty,
+              unitCost: 0,
+              sellingRate: Math.round(rate * 100),
+              averageCostSnapshot: 0,
+              profitSnapshot: 0,
+              referenceNumber: vehicle || null,
+              referenceType: vehicle ? 'DELIVERY_NOTE' : null,
+              transactionDate: dateStr,
+              notes: `Imported from ${sourceFile} Row ${rowNum}`,
+              createdBy: operator,
+              createdAt: now,
+              updatedAt: now,
+            })
+            importedCount++
+          }
+
+          else if (type === 'TRANSFER') {
+            const sourceDriverInput = String(row.driverName || '').trim()
+            let sourceDriverObj = driverNameMap.get(sourceDriverInput.toLowerCase())
+            if (!sourceDriverObj && autoCreateMasters) {
+              const newDriverId = crypto.randomUUID()
+              sourceDriverObj = {
+                id: newDriverId,
+                name: sourceDriverInput,
+                phone: null,
+                address: null,
+                notes: 'Auto-created by Import Wizard',
+                status: 'ACTIVE',
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(drivers).values(sourceDriverObj)
+              driverNameMap.set(sourceDriverInput.toLowerCase(), sourceDriverObj)
+            }
+
+            const rawDestInput = String(row.fromTo || '').trim()
+            const destDriverInput = rawDestInput.replace(/^to\s+/i, '').trim()
+            let destDriverObj = driverNameMap.get(destDriverInput.toLowerCase())
+            if (!destDriverObj && autoCreateMasters) {
+              const newDriverId = crypto.randomUUID()
+              destDriverObj = {
+                id: newDriverId,
+                name: destDriverInput,
+                phone: null,
+                address: null,
+                notes: 'Auto-created by Import Wizard',
+                status: 'ACTIVE',
+                createdAt: now,
+                updatedAt: now,
+                deletedAt: null,
+              }
+              await db.insert(drivers).values(destDriverObj)
+              driverNameMap.set(destDriverInput.toLowerCase(), destDriverObj)
+            }
+
+            if (!sourceDriverObj || !destDriverObj) {
+              throw new Error(`Row ${rowNum}: Source/Destination driver not resolved`)
+            }
+
+            const txNumber = `TRF-${String(transferSeq++).padStart(5, '0')}`
+
+            await db.insert(transactions).values({
+              id: crypto.randomUUID(),
+              transactionNumber: txNumber,
+              transactionType: 'TRANSFER',
+              sourceType: 'DRIVER',
+              sourceId: sourceDriverObj.id,
+              destinationType: 'DRIVER',
+              destinationId: destDriverObj.id,
+              quantity: qty,
+              unitCost: 0,
+              sellingRate: 0,
+              averageCostSnapshot: 0,
+              profitSnapshot: 0,
+              referenceNumber: vehicle || null,
+              referenceType: vehicle ? 'GATE_PASS' : null,
+              transactionDate: dateStr,
+              notes: `Imported from ${sourceFile} Row ${rowNum}`,
+              createdBy: operator,
+              createdAt: now,
+              updatedAt: now,
+            })
+            importedCount++
+          }
+        }
+
+        logStage('5. Import Transactions', 'END')
+
+        logStage('6. Recalculate WAC', 'START')
+        logStage('7. Recalculate Balances', 'START')
+        await TransactionService.recalculateLedger()
+        logStage('6. Recalculate WAC', 'END')
+        logStage('7. Recalculate Balances', 'END')
+
+        logStage('8. Commit Transaction', 'START')
+      })
+
+      logStage('8. Commit Transaction', 'END')
+
+      logStage('9. Refresh Cache', 'START')
+      logStage('9. Refresh Cache', 'END')
+
+      logStage('10. Finish Import', 'START')
+      logStage('10. Finish Import', 'END')
+
+      return {
+        imported: importedCount,
+        errors: [],
+      }
+    } catch (e: any) {
+      logStage('importSmartRecords execution', 'ERROR', e.message)
+      throw e
     }
   }
 }

@@ -215,13 +215,14 @@ let writeQueue = Promise.resolve<unknown>(null)
 export async function runInTransaction<T>(action: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     writeQueue = writeQueue.then(async () => {
-      sqlite.exec('BEGIN')
+      const inTx = sqlite.inTransaction
+      if (!inTx) sqlite.exec('BEGIN')
       try {
         const result = await action()
-        sqlite.exec('COMMIT')
+        if (!inTx) sqlite.exec('COMMIT')
         resolve(result)
       } catch (error) {
-        sqlite.exec('ROLLBACK')
+        if (!inTx) sqlite.exec('ROLLBACK')
         reject(error)
       }
     }).catch(() => {
