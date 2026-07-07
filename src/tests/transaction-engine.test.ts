@@ -192,7 +192,6 @@ describe('Transaction Engine Core & Chronological Stock Rebuilding Integration T
           fromDriverId: driver1Id,
           toDriverId: driver2Id,
           quantity: 1500,
-          referenceNumber: 'TRF-D1-D2',
           transactionDate: '2026-07-05',
         },
         operator
@@ -224,7 +223,7 @@ describe('Transaction Engine Core & Chronological Stock Rebuilding Integration T
           customerId,
           quantity: 1000,
           sellingRate: 200,
-          referenceNumber: 'SAL-01',
+          vehicleNumber: 'SAL-01',
           transactionDate: '2026-07-05',
           notes: 'Standard trade',
         },

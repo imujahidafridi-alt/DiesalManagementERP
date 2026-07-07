@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Button, DataGrid, useShortcutEffect, Select } from '@/components/ui'
 import { useUiStore, useAppStore } from '@/store'
+import Logo from '@/components/common/Logo'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import { PdfService } from '@/utils/PdfService'
@@ -118,7 +119,7 @@ export default function ReportsPage() {
   useEffect(() => {
     const today = new Date()
     let start = ''
-    let end = today.toISOString().split('T')[0]
+    let end = FormattingService.getLocalDateString(today)
 
     switch (datePreset) {
       case 'today':
@@ -127,13 +128,13 @@ export default function ReportsPage() {
       case 'yesterday':
         const yest = new Date()
         yest.setDate(today.getDate() - 1)
-        start = yest.toISOString().split('T')[0]
+        start = FormattingService.getLocalDateString(yest)
         end = start
         break
       case 'last_7_days':
         const l7 = new Date()
         l7.setDate(today.getDate() - 6)
-        start = l7.toISOString().split('T')[0]
+        start = FormattingService.getLocalDateString(l7)
         break
       case 'this_month':
         start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
@@ -143,7 +144,7 @@ export default function ReportsPage() {
         lm.setMonth(today.getMonth() - 1)
         start = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, '0')}-01`
         const lastDay = new Date(lm.getFullYear(), lm.getMonth() + 1, 0)
-        end = lastDay.toISOString().split('T')[0]
+        end = FormattingService.getLocalDateString(lastDay)
         break
       case 'this_year':
         start = `${today.getFullYear()}-01-01`
@@ -388,21 +389,18 @@ export default function ReportsPage() {
     switch (selectedCat) {
       case 'profit_analysis':
         cols = [
-          { key: 'rank', header: 'Rank', width: 60 },
-          { key: 'entity', header: 'Customer Entity Name', width: 220 },
-          { key: 'quantity', header: `Total Volume (${unit})`, width: 120, type: 'number' },
-          { key: 'revenue', header: 'Total Revenue Invoiced', width: 140, type: 'currency' },
-          { key: 'profit', header: 'Margin Profit Value', width: 140, type: 'currency' },
+          { key: 'entity', header: 'Customer Name', width: 220 },
+          { key: 'quantity', header: `Volume Sold (${unit})`, width: 120, align: 'right', render: (row) => FormattingService.formatQuantityWithoutUnit(row.quantity || 0) },
+          { key: 'revenue', header: 'Revenue', width: 140, align: 'right', render: (row) => FormattingService.formatCurrency(row.revenue || 0) },
+          { key: 'profit', header: 'Gross Profit', width: 140, align: 'right', render: (row) => FormattingService.formatCurrency(row.profit || 0) },
         ]
         break
       case 'inventory_valuation':
         cols = [
-          { key: 'locationName', header: 'Storage Tank / Vehicle', width: 220 },
-          { key: 'locationType', header: 'Type', width: 110 },
-          { key: 'capacity', header: `Volume Capacity (${unit})`, width: 130, type: 'number' },
+          { key: 'locationName', header: 'Driver Name', width: 220 },
           { key: 'currentStock', header: `Current Stock (${unit})`, width: 125, type: 'number' },
           { key: 'weightedAverageCost', header: `Carrying WAC (${symbol}/${unit})`, width: 125, type: 'currency' },
-          { key: 'totalAssetValue', header: 'Asset Asset Value', width: 140, type: 'currency' },
+          { key: 'totalAssetValue', header: 'Asset Value', width: 140, type: 'currency' },
         ]
         break
       case 'daily_summary':
@@ -436,10 +434,9 @@ export default function ReportsPage() {
             header: 'Total Cost',
             width: 110,
             type: 'currency',
-            render: (row) => Math.round(row.quantity * row.unitCost),
+            render: (row) => FormattingService.formatCurrency(Math.round(row.quantity * row.unitCost)),
           },
-          { key: 'referenceNumber', header: 'Ref Challan', width: 100 },
-          { key: 'createdBy', header: 'Operator', width: 110 },
+          { key: 'referenceNumber', header: 'Vehicle Number', width: 110, align: 'right' },
         ]
         break
       case 'sales_register':
@@ -460,11 +457,10 @@ export default function ReportsPage() {
             header: 'Revenue',
             width: 105,
             type: 'currency',
-            render: (row) => Math.round(row.quantity * row.sellingRate),
+            render: (row) => FormattingService.formatCurrency(Math.round(row.quantity * row.sellingRate)),
           },
           { key: 'profitSnapshot', header: 'Gross Profit', width: 105, type: 'currency' },
-          { key: 'referenceNumber', header: 'Delivery Ref', width: 100 },
-          { key: 'createdBy', header: 'Operator', width: 110 },
+          { key: 'vehicleNumber', header: 'Vehicle Number', width: 100 },
         ]
         break
       case 'transfer_register':
@@ -491,10 +487,9 @@ export default function ReportsPage() {
                return d ? d.name : c ? c.companyName : row.destinationId
             },
           },
+          { key: 'referenceNumber', header: 'Vehicle Number', width: 110 },
           { key: 'quantity', header: `Volume (${unit})`, width: 100, type: 'number' },
           { key: 'unitCost', header: 'WAC Carrier', width: 100, type: 'currency' },
-          { key: 'referenceNumber', header: 'Ref GatePass', width: 100 },
-          { key: 'createdBy', header: 'Operator', width: 110 },
         ]
         break
       case 'supplier_ledger':
@@ -586,7 +581,6 @@ export default function ReportsPage() {
           { key: 'entityId', header: 'Item UUID', width: 150 },
           { key: 'action', header: 'CRUD Action', width: 100 },
           { key: 'timestamp', header: 'Audit Date-Time', width: 140 },
-          { key: 'user', header: 'Operator', width: 110 },
         ]
         break
       default:
@@ -737,7 +731,7 @@ export default function ReportsPage() {
       PdfService.generateReportPDF(selectedCat, reportData, {
         startDate: startDate || undefined,
         endDate: endDate || undefined,
-        companyName: 'Malak Enterprise',
+        companyName: 'Sahara Diesels',
         drivers,
         customers,
         suppliers,
@@ -1117,41 +1111,51 @@ export default function ReportsPage() {
         <div className="p-4 border-b bg-gray-50/50 grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0 shadow-sm print:bg-transparent print:border-b-2 font-mono">
           {selectedCat === 'profit_analysis' && profitSummary ? (
             <>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Volume Sold</span>
-                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(profitSummary.totalQuantitySold)}</p>
-              </div>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Revenue Value</span>
-                <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(profitSummary.revenue)}</p>
-              </div>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Net COGS Cost</span>
-                <p className="text-sm font-black text-gray-800">{FormattingService.formatCurrency(profitSummary.cost)}</p>
-              </div>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
-                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Gross Margin Profit</span>
-                <p className="text-sm font-black text-emerald-700">{FormattingService.formatCurrency(profitSummary.grossProfit)} <span className="text-[10px] text-gray-400 font-normal">({profitSummary.averageMargin}%)</span></p>
-              </div>
+              {(() => {
+                const marginPct = profitSummary.revenue > 0 ? ((profitSummary.grossProfit / profitSummary.revenue) * 100).toFixed(2) : '0.00'
+                return (
+                  <>
+                    <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                      <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Volume Sold</span>
+                      <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(profitSummary.totalQuantitySold)}</p>
+                    </div>
+                    <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                      <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Revenue</span>
+                      <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(profitSummary.revenue)}</p>
+                    </div>
+                    <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                      <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Cost of Goods Sold (COGS)</span>
+                      <p className="text-sm font-black text-gray-800">{FormattingService.formatCurrency(profitSummary.cost)}</p>
+                    </div>
+                    <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                      <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Gross Profit</span>
+                      <p className="text-sm font-black text-green-700 flex items-baseline gap-1.5">
+                        <span>{FormattingService.formatCurrency(profitSummary.grossProfit)}</span>
+                        <span className="text-[10px] text-gray-400 font-semibold font-sans">({marginPct}%)</span>
+                      </p>
+                    </div>
+                  </>
+                )
+              })()}
             </>
           ) : (
             <>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
                 <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Records Loaded</span>
                 <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
               </div>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
                 <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Aggregated Volume</span>
                 <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
               </div>
-              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
                 <span className="text-[9px] uppercase font-bold text-gray-400 font-sans font-sans">Financial Value</span>
                 <p className="text-sm font-black text-blue-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
               </div>
               {summaryAggregates.profit > 0 && (
-                <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0">
+                <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
                   <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Estimated Margins</span>
-                  <p className="text-sm font-black text-emerald-700">{FormattingService.formatCurrency(summaryAggregates.profit)}</p>
+                  <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(summaryAggregates.profit)}</p>
                 </div>
               )}
             </>
@@ -1159,13 +1163,29 @@ export default function ReportsPage() {
         </div>
 
         {/* Print Only Custom Header Layout */}
-        <div className="print-only hidden select-none p-4 border-b-2">
-          <h2 className="text-lg font-black uppercase text-gray-900">MALAK ENTERPRISE DIESEL INVENTORY STATEMENT</h2>
-          <div className="grid grid-cols-2 text-[10px] text-gray-500 mt-2 font-mono">
-            <div>Report Category: <span className="font-bold text-gray-800 uppercase">{categories.find((c) => c.id === selectedCat)?.name}</span></div>
-            <div>Print Timestamp: <span className="font-bold text-gray-800">{new Date().toLocaleString()}</span></div>
-            <div>Date Limit: <span className="font-bold text-gray-800">{startDate || 'Any'} to {endDate || 'Any'}</span></div>
-            <div>Generated By: <span className="font-bold text-gray-800">{localStorage.getItem('diesel_user') || 'ERP Operator'}</span></div>
+        <div className="print-only hidden select-none w-full border-b border-gray-300 pb-4 mb-4">
+          <div className="flex justify-between items-start w-full">
+            {/* Left Column: Brand Identity */}
+            <div className="flex flex-col">
+              <Logo className="h-10 w-auto self-start" />
+              <span className="text-[10px] font-black text-gray-600 mt-1.5 uppercase tracking-wider">
+                Sahara Group General Transport
+              </span>
+            </div>
+
+            {/* Right Column: Report Meta Data */}
+            <div className="flex flex-col text-right items-end">
+              <h1 className="text-xl font-bold text-gray-900">
+                {categories.find((c) => c.id === selectedCat)?.name || 'Inventory Statement'}
+              </h1>
+              <p className="text-xs text-gray-500 mt-1">
+                Date Range: {startDate || 'Any'} to {endDate || 'Any'}
+              </p>
+              <div className="text-[10px] text-gray-400 mt-2 space-y-0.5">
+                <p>Generated By: {localStorage.getItem('diesel_user') || 'ERP Operator'}</p>
+                <p>Generated On: {new Date().toLocaleString()}</p>
+              </div>
+            </div>
           </div>
         </div>
 

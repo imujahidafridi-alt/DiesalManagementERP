@@ -31,8 +31,10 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
     },
-    title: 'Malak Enterprise ERP',
+    title: 'Sahara Diesels',
     autoHideMenuBar: true,
+    frame: false,
+    titleBarStyle: 'hidden',
   })
 
   // Load URL in development or HTML file in production
@@ -53,11 +55,18 @@ function createWindow() {
 }
 
 // Perform database migrations and run window on ready
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initMainLogger(app.getPath('userData'))
-  Logger.info('Malak Enterprise ERP Starting up...')
+  Logger.info('Sahara Diesels Starting up...')
   console.log('Initializing database...')
   runMigrations()
+
+  try {
+    Logger.info('Self-healing/recalculating stock snapshots from ledger...')
+    await TransactionService.recalculateLedgerInternal()
+  } catch (err) {
+    Logger.error('Failed to run startup snapshot recalculation', err)
+  }
 
   createWindow()
 
@@ -183,4 +192,20 @@ handleIpc('app:exportDiagnostics', async () => {
 handleIpc('logger:write', async (log: { level: 'info' | 'warn' | 'error' | 'critical'; message: string; errorStack?: string }) => {
   const fn = Logger[log.level] || Logger.info
   fn(log.message + (log.errorStack ? `\nStack: ${log.errorStack}` : ''))
+})
+
+handleIpc('window:minimize', async () => {
+  mainWindow?.minimize()
+})
+
+handleIpc('window:maximize', async () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow?.maximize()
+  }
+})
+
+handleIpc('window:close', async () => {
+  mainWindow?.close()
 })

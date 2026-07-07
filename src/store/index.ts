@@ -41,8 +41,24 @@ export const useUiStore = create<UiState>((set) => ({
   toasts: [],
   addToast: (message, type = 'info') => {
     const id = Math.random().toString(36).substring(2, 9)
+    let cleanedMessage = message
+    if (type === 'error' && typeof message === 'string') {
+      const invokePrefix = /Error invoking remote method '[^']+':\s*(.*)/i
+      const match = message.match(invokePrefix)
+      if (match && match[1]) {
+        cleanedMessage = match[1]
+      }
+      const errorNamePrefix = /^([a-zA-Z0-9_]+Error):\s*(.*)/i
+      const matchError = cleanedMessage.match(errorNamePrefix)
+      if (matchError && matchError[2]) {
+        cleanedMessage = matchError[2]
+      }
+      if (cleanedMessage.startsWith('Error: ')) {
+        cleanedMessage = cleanedMessage.substring(7)
+      }
+    }
     set((state) => ({
-      toasts: [...state.toasts, { id, message, type }],
+      toasts: [...state.toasts, { id, message: cleanedMessage, type }],
     }))
     // Auto-remove toast after 4 seconds
     setTimeout(() => {
@@ -128,7 +144,7 @@ interface AppState {
     fromDriverId: string
     toDriverId: string
     quantity: number
-    referenceNumber?: string
+    vehicleNumber?: string
     transactionDate: string
     notes?: string
   }) => Promise<Transaction>
@@ -137,7 +153,7 @@ interface AppState {
     fromDriverId: string
     toDriverId: string
     quantity: number
-    referenceNumber?: string
+    vehicleNumber?: string
     transactionDate: string
     notes?: string
   }) => Promise<Transaction>
@@ -158,7 +174,7 @@ interface AppState {
     customerId: string
     quantity: number
     sellingRate: number // in cents
-    referenceNumber?: string
+    vehicleNumber?: string
     transactionDate: string
     notes?: string
   }) => Promise<Transaction>
@@ -168,12 +184,20 @@ interface AppState {
     customerId: string
     quantity: number
     sellingRate: number // in cents
-    referenceNumber?: string
+    vehicleNumber?: string
     transactionDate: string
     notes?: string
   }) => Promise<Transaction>
 
   deleteSale: (id: string) => Promise<boolean>
+  createAdjustment: (data: {
+    locationId: string
+    locationType: 'DRIVER' | 'INVENTORY' | 'VEHICLE'
+    adjustmentType: 'INCREASE' | 'DECREASE'
+    quantity: number
+    notes: string
+    transactionDate: string
+  }) => Promise<any>
   
   getCustomerStatementReport: (customerId: string, filters?: { startDate?: string; endDate?: string }) => Promise<{
     customerName: string
@@ -287,7 +311,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchSales: async () => {
     try {
       const all = await window.api.invoke('transactions:list')
-      const s = all.filter((t) => t.transactionType === 'SALE')
+      const s = all
+        .filter((t) => t.transactionType === 'SALE')
+        .map((t) => ({
+          ...t,
+          vehicleNumber: t.referenceNumber || undefined,
+        }))
       set({ sales: s, dbConnected: true })
     } catch (err) {
       console.error(err)
@@ -414,7 +443,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const res = await window.api.invoke('transactions:createSale', data, operator)
     await get().fetchSales()
     await get().fetchInventorySnapshots()
-    return res
+    return { ...res, vehicleNumber: res.referenceNumber || undefined }
   },
 
   updateSale: async (id, data) => {
@@ -422,13 +451,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     const res = await window.api.invoke('transactions:updateSale', id, data, operator)
     await get().fetchSales()
     await get().fetchInventorySnapshots()
-    return res
+    return { ...res, vehicleNumber: res.referenceNumber || undefined }
   },
 
   deleteSale: async (id) => {
     const operator = get().currentOperator || 'Default Operator'
     const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
     await get().fetchSales()
+    await get().fetchInventorySnapshots()
+    return res
+  },
+
+  createAdjustment: async (data) => {
+    const operator = get().currentOperator || 'Default Operator'
+    const res = await window.api.invoke('transactions:createAdjustment', data, operator)
     await get().fetchInventorySnapshots()
     return res
   },

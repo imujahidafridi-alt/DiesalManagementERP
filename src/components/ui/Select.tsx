@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useRef, useEffect, useImperativeHandle } from 'react'
 import clsx from 'clsx'
 
 interface SelectOption {
@@ -6,61 +6,157 @@ interface SelectOption {
   label: string
 }
 
-interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+interface SelectProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'onChange' | 'value'> {
   options: SelectOption[]
+  value?: string | number
+  onChange?: (e: { target: { value: string; name?: string } }) => void
   label?: string
   error?: string
+  disabled?: boolean
+  name?: string
   placeholder?: string
 }
 
-export default function Select({
-  className,
-  options,
-  label,
-  error,
-  placeholder,
-  id,
-  required,
-  ...props
-}: SelectProps) {
-  const selectId = id || React.useId()
+const Select = React.forwardRef<HTMLDivElement, SelectProps>(
+  ({ className, options, value, onChange, label, error, disabled, name, placeholder, ...props }, ref) => {
+    const [isOpen, setIsOpen] = useState(false)
+    const [activeIndex, setActiveIndex] = useState(0)
 
-  return (
-    <div className="space-y-1">
-      {label && (
-        <label htmlFor={selectId} className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-          {label} {required && <span className="text-red-500">*</span>}
-        </label>
-      )}
-      <div className="relative">
-        <select
-          id={selectId}
-          required={required}
+    const containerRef = useRef<HTMLDivElement>(null)
+    useImperativeHandle(ref, () => containerRef.current as HTMLDivElement)
+
+    const selectedOption = options.find((opt) => String(opt.value) === String(value))
+
+    // Handle outside clicks to close the dropdown
+    useEffect(() => {
+      function handleClickOutside(event: MouseEvent) {
+        if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+          setIsOpen(false)
+        }
+      }
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [])
+
+    // Synchronize active index with current value when opening
+    useEffect(() => {
+      if (isOpen && value !== undefined) {
+        const idx = options.findIndex((opt) => String(opt.value) === String(value))
+        if (idx !== -1) {
+          setActiveIndex(idx)
+        }
+      }
+    }, [isOpen, value, options])
+
+    const handleSelect = (val: string | number) => {
+      if (disabled) return
+      if (onChange) {
+        onChange({ target: { value: String(val), name } })
+      }
+      setIsOpen(false)
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (disabled) return
+
+      if (!isOpen) {
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+          setIsOpen(true)
+          e.preventDefault()
+        }
+        return
+      }
+
+      switch (e.key) {
+        case 'ArrowDown':
+          setActiveIndex((prev) => (options.length > 0 ? (prev + 1) % options.length : 0))
+          e.preventDefault()
+          break
+        case 'ArrowUp':
+          setActiveIndex((prev) => (options.length > 0 ? (prev - 1 + options.length) % options.length : 0))
+          e.preventDefault()
+          break
+        case 'Enter':
+        case ' ':
+          if (options[activeIndex]) {
+            handleSelect(options[activeIndex].value)
+          }
+          e.preventDefault()
+          break
+        case 'Escape':
+          setIsOpen(false)
+          e.preventDefault()
+          break
+        case 'Tab':
+          setIsOpen(false)
+          break
+      }
+    }
+
+    return (
+      <div className="flex flex-col gap-1 w-full relative select-none">
+        {label && (
+          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+            {label}
+          </label>
+        )}
+        <div
+          ref={containerRef}
+          tabIndex={disabled ? -1 : 0}
+          onKeyDown={handleKeyDown}
+          onClick={() => !disabled && setIsOpen(!isOpen)}
           className={clsx(
-            'w-full px-3 py-1.5 text-xs bg-white border rounded shadow-subtle focus-ring appearance-none pr-8 cursor-pointer',
-            error ? 'border-red-400 focus-visible:ring-red-400' : 'border-gray-300',
+            'relative flex h-8 w-full items-center justify-between rounded border bg-white pl-2.5 pr-8 py-1 text-xs transition-colors cursor-pointer focus-ring hover:border-gray-400 disabled:cursor-not-allowed disabled:opacity-50 select-none text-gray-800 focus:outline-none',
+            disabled && 'cursor-not-allowed opacity-50 bg-gray-50 hover:border-gray-300',
+            error 
+              ? 'border-red-500 focus:ring-red-500 focus:border-red-500' 
+              : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500',
             className
           )}
           {...props}
         >
-          {placeholder && (
-            <option value="" disabled>
-              {placeholder}
-            </option>
+          <span className={clsx('truncate', (!selectedOption || selectedOption.value === '') ? 'text-gray-400' : 'text-gray-800')}>
+            {selectedOption ? selectedOption.label : (placeholder || 'Select option...')}
+          </span>
+          <div className="absolute inset-y-0 right-0 flex items-center px-2.5 text-gray-400">
+            <svg className="fill-current h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+              <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+            </svg>
+          </div>
+
+          {/* Custom Floating Options list */}
+          {isOpen && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-60 overflow-auto py-1">
+              {options.map((opt, idx) => {
+                const isSelected = String(value) === String(opt.value)
+                const isActive = idx === activeIndex
+
+                return (
+                  <div
+                    key={opt.value}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleSelect(opt.value)
+                    }}
+                    className={clsx(
+                      'px-3 py-1.5 text-xs cursor-pointer transition-colors truncate',
+                      isSelected && 'font-bold bg-blue-50/50 text-blue-600',
+                      isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                    )}
+                  >
+                    {opt.label}
+                  </div>
+                )
+              })}
+            </div>
           )}
-          {options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-          <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-            <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
-          </svg>
         </div>
+        {error && <span className="text-[10px] font-medium text-red-600">{error}</span>}
       </div>
-      {error && <p className="text-[10px] text-red-600 font-medium">{error}</p>}
-    </div>
-  )
-}
+    )
+  }
+)
+
+Select.displayName = 'Select'
+
+export default Select

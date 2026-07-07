@@ -28,17 +28,17 @@ describe('Production Hardening, Backups, Audits & Data Imports E2E Tests', () =>
   describe('Application Settings Configurations', () => {
     it('should upsert and read global settings key-values', async () => {
       const initial = await SettingsService.getSettings()
-      expect(initial.company_name).toBe('Malak Enterprise')
+      expect(initial.company_name).toBe('Sahara Diesels')
 
       const updates = {
-        company_name: 'Malak Fuel Log',
+        company_name: 'Sahara Fuel Log',
         currency_symbol: 'SAR',
         quantity_precision: '3',
       }
       await SettingsService.saveSettings(updates, operator)
 
       const active = await SettingsService.getSettings()
-      expect(active.company_name).toBe('Malak Fuel Log')
+      expect(active.company_name).toBe('Sahara Fuel Log')
       expect(active.currency_symbol).toBe('SAR')
       expect(active.quantity_precision).toBe('3')
     })

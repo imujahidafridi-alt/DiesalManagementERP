@@ -18,8 +18,12 @@ export type NewCustomer = typeof customers.$inferInsert
 export type Supplier = typeof suppliers.$inferSelect
 export type NewSupplier = typeof suppliers.$inferInsert
 
-export type Transaction = typeof transactions.$inferSelect
-export type NewTransaction = typeof transactions.$inferInsert
+export type Transaction = typeof transactions.$inferSelect & {
+  vehicleNumber?: string | null
+}
+export type NewTransaction = typeof transactions.$inferInsert & {
+  vehicleNumber?: string | null
+}
 
 export type Inventory = typeof inventory.$inferSelect
 export type NewInventory = typeof inventory.$inferInsert

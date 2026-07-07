@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useImperativeHandle } from 'react'
 import clsx from 'clsx'
 import { ChevronDown, Search, Plus } from 'lucide-react'
 
@@ -17,25 +17,33 @@ interface ComboboxProps {
   required?: boolean
   className?: string
   onCreateCustom?: (name: string) => void | Promise<void>
+  onSelect?: (value: string) => void
 }
 
-export default function Combobox({
-  options,
-  value,
-  onChange,
-  placeholder = 'Select option...',
-  label,
-  error,
-  required,
-  className,
-  onCreateCustom,
-}: ComboboxProps) {
+const Combobox = React.forwardRef<HTMLDivElement, ComboboxProps>((
+  {
+    options,
+    value,
+    onChange,
+    placeholder = 'Select option...',
+    label,
+    error,
+    required,
+    className,
+    onCreateCustom,
+    onSelect,
+  },
+  ref
+) => {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  useImperativeHandle(ref, () => triggerRef.current as HTMLDivElement)
 
   // Filter options based on search query
   const filtered = options.filter((opt) =>
@@ -49,7 +57,7 @@ export default function Combobox({
     if (isOpen) {
       setSearch('')
       setActiveIndex(0)
-      inputRef.current?.focus()
+      setTimeout(() => inputRef.current?.focus(), 10)
     }
   }, [isOpen])
 
@@ -67,7 +75,7 @@ export default function Combobox({
   // Keyboard navigation inside options dropdown
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen) {
-      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
         setIsOpen(true)
         e.preventDefault()
       }
@@ -91,19 +99,23 @@ export default function Combobox({
 
         if (filtered.length === 0 && showAddCustomOption) {
           onCreateCustom(search.trim())
+          if (onSelect) onSelect('')
           setIsOpen(false)
         } else if (filtered[activeIndex]) {
           onChange(filtered[activeIndex].value)
+          if (onSelect) onSelect(filtered[activeIndex].value)
           setIsOpen(false)
         }
         e.preventDefault()
         break
       }
       case 'Escape':
+        triggerRef.current?.focus()
         setIsOpen(false)
         e.preventDefault()
         break
       case 'Tab':
+        triggerRef.current?.focus()
         setIsOpen(false)
         break
     }
@@ -119,6 +131,7 @@ export default function Combobox({
       
       {/* Target Trigger Box */}
       <div
+        ref={triggerRef}
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -167,6 +180,7 @@ export default function Combobox({
                     <div
                       onClick={async () => {
                         await onCreateCustom(search.trim())
+                        if (onSelect) onSelect('')
                         setIsOpen(false)
                       }}
                       className="px-3 py-2 text-xs cursor-pointer text-blue-600 font-bold hover:bg-blue-50 border-b flex items-center gap-1.5"
@@ -187,6 +201,7 @@ export default function Combobox({
                           key={opt.value}
                           onClick={() => {
                             onChange(opt.value)
+                            if (onSelect) onSelect(opt.value)
                             setIsOpen(false)
                           }}
                           className={clsx(
@@ -210,4 +225,8 @@ export default function Combobox({
       {error && <p className="text-[10px] text-red-600 font-medium">{error}</p>}
     </div>
   )
-}
+})
+
+Combobox.displayName = 'Combobox'
+
+export default Combobox

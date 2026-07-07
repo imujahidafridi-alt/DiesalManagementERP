@@ -53,7 +53,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.setAttribute('href', url)
-        link.setAttribute('download', `malak_erp_diagnostics_${new Date().toISOString().split('T')[0]}.txt`)
+        link.setAttribute('download', `sahara_diesels_diagnostics_${new Date().toISOString().split('T')[0]}.txt`)
         link.click()
       } catch (e: any) {
         alert(`Failed to export logs: ${e.message}`)

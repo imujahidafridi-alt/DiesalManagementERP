@@ -4,7 +4,6 @@ import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import {
   Button,
-  Select,
   Combobox,
   DataGrid,
   useShortcutEffect,
@@ -49,7 +48,6 @@ export default function PurchasesPage() {
   const {
     purchases,
     suppliers,
-    inventorySnapshots,
     loadingPurchases,
     fetchPurchases,
     fetchSuppliers,
@@ -57,7 +55,6 @@ export default function PurchasesPage() {
     createPurchase,
     updatePurchase,
     deletePurchase,
-    currentOperator,
     dbConnected,
     createSupplier,
     drivers,
@@ -80,6 +77,8 @@ export default function PurchasesPage() {
 
   // Input refs for keyboard tab/enter traversal
   const refDate = useRef<HTMLInputElement>(null)
+  const refSupplier = useRef<HTMLDivElement>(null)
+  const refDriver = useRef<HTMLDivElement>(null)
   const refRefNum = useRef<HTMLInputElement>(null)
   const refQty = useRef<HTMLInputElement>(null)
   const refRate = useRef<HTMLInputElement>(null)
@@ -119,17 +118,12 @@ export default function PurchasesPage() {
   }, [suppliers])
 
   const driverOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Select Driver...' },
-      ...drivers
-        .filter((d) => d.status === 'ACTIVE')
-        .map((d) => {
-          return {
-            value: d.id,
-            label: d.name,
-          }
-        }),
-    ]
+    return drivers
+      .filter((d) => d.status === 'ACTIVE')
+      .map((d) => ({
+        value: d.id,
+        label: d.name,
+      }))
   }, [drivers])
 
   // Summary statistics
@@ -162,20 +156,6 @@ export default function PurchasesPage() {
 
     const avgRate = totalVol > 0 ? (totalAmt / totalVol) : 0
 
-    // Fetch total driver stock and average driver WAC
-    let totalDriverStock = 0
-    let totalDriverValuation = 0 // in cents
-
-    inventorySnapshots.forEach((snap) => {
-      const isDriver = drivers.some((d) => d.id === snap.item)
-      if (isDriver) {
-        totalDriverStock += snap.currentStock
-        totalDriverValuation += Math.round(snap.currentStock * snap.weightedAverageCost)
-      }
-    })
-
-    const avgDriverWac = totalDriverStock > 0 ? (totalDriverValuation / totalDriverStock) : 0
-
     return {
       todayQty: todayVol,
       todayTotal: todayAmt,
@@ -183,34 +163,46 @@ export default function PurchasesPage() {
       monthTotal: monthAmt,
       totalQty: totalVol,
       avgRate: avgRate,
-      currentStock: totalDriverStock,
-      currentWac: avgDriverWac / 100, // in dollars
+      totalTransactions: purchases.length,
     }
-  }, [purchases, inventorySnapshots])
+  }, [purchases])
 
   // Filtered recent purchases list
   const filteredPurchases = useMemo(() => {
-    if (!searchQuery.trim()) return purchases
-
-    const query = searchQuery.toLowerCase()
-    return purchases.filter((p) => {
-      const supplierName = suppliers.find((s) => s.id === p.sourceId)?.companyName || ''
-      return (
-        p.transactionNumber.toLowerCase().includes(query) ||
-        p.referenceNumber?.toLowerCase().includes(query) ||
-        supplierName.toLowerCase().includes(query) ||
-        p.notes?.toLowerCase().includes(query) ||
-        p.transactionDate.includes(query) ||
-        p.quantity.toString().includes(query)
-      )
-    })
+    let result = purchases
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      result = purchases.filter((p) => {
+        const supplierName = suppliers.find((s) => s.id === p.sourceId)?.companyName || ''
+        return (
+          p.transactionNumber.toLowerCase().includes(query) ||
+          p.referenceNumber?.toLowerCase().includes(query) ||
+          supplierName.toLowerCase().includes(query) ||
+          p.notes?.toLowerCase().includes(query) ||
+          p.transactionDate.includes(query) ||
+          p.quantity.toString().includes(query)
+        )
+      })
+    }
+    return [...result].reverse()
   }, [purchases, searchQuery, suppliers])
 
   // --- 4. Keyboard Traversal Handler ---
   const handleFormKeyDown = (e: React.KeyboardEvent, currentField: keyof PurchaseFormData) => {
     if (e.key === 'Enter') {
+      // Do not let Enter skip any required field.
+      if (currentField === 'date' && !formData.date) return
+      if (currentField === 'supplierId' && !formData.supplierId) return
+      if (currentField === 'destinationLocation' && !formData.destinationLocation) return
+      if (currentField === 'quantity' && !formData.quantity) return
+      if (currentField === 'unitCostDollars' && !formData.unitCostDollars) return
+
       e.preventDefault()
       if (currentField === 'date') {
+        refSupplier.current?.focus()
+      } else if (currentField === 'supplierId') {
+        refDriver.current?.focus()
+      } else if (currentField === 'destinationLocation') {
         refRefNum.current?.focus()
       } else if (currentField === 'referenceNumber') {
         refQty.current?.focus()
@@ -428,14 +420,13 @@ export default function PurchasesPage() {
         render: (row) => FormattingService.formatCurrency(row.quantity * row.unitCost),
       },
       { key: 'averageCostSnapshot', header: `Carrying WAC/${unit}`, width: 110, type: 'currency' },
-      { key: 'createdBy', header: 'Operator', width: 110 },
       {
         key: 'status',
         header: 'Status',
         width: 80,
         render: () => (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-50 border border-green-200 text-green-700">
-            POSTED
+            COMPLETED
           </span>
         ),
       },
@@ -525,7 +516,7 @@ export default function PurchasesPage() {
 
       {/* 2. Excel-like Entry Grid */}
       {isEditing && (
-        <div className="border bg-white rounded shadow-md overflow-hidden p-4 space-y-3">
+        <div className="border bg-white rounded shadow-md p-4 space-y-3">
           <div className="flex items-center justify-between border-b pb-2">
             <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
               {editId ? `Editing Purchase: ${selectedTxRow?.transactionNumber}` : 'New Purchase Invoice Entry Grid'}
@@ -544,9 +535,8 @@ export default function PurchasesPage() {
                 <input
                   ref={refDate}
                   type="date"
-                  className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                    formErrors.date ? 'border-red-400' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.date ? 'border-red-400' : 'border-gray-300'
+                    }`}
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   onKeyDown={(e) => handleFormKeyDown(e, 'date')}
@@ -559,9 +549,11 @@ export default function PurchasesPage() {
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-gray-400 uppercase">Supplier</label>
               <Combobox
+                ref={refSupplier}
                 options={supplierOptions}
                 value={formData.supplierId}
                 onChange={(val) => setFormData({ ...formData, supplierId: val })}
+                onSelect={() => refDriver.current?.focus()}
                 placeholder="Lookup Supplier..."
                 error={formErrors.supplierId}
                 onCreateCustom={handleCreateSupplier}
@@ -571,16 +563,13 @@ export default function PurchasesPage() {
             {/* Cell 3: Driver Destination */}
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-gray-400 uppercase">Driver</label>
-              <Select
+              <Combobox
+                ref={refDriver}
                 options={driverOptions}
                 value={formData.destinationLocation}
-                onChange={(e) => {
-                  const drvId = e.target.value
-                  setFormData({
-                    ...formData,
-                    destinationLocation: drvId,
-                  })
-                }}
+                onChange={(val) => setFormData({ ...formData, destinationLocation: val })}
+                onSelect={() => refRefNum.current?.focus()}
+                placeholder="Select Driver..."
                 error={formErrors.destinationLocation}
               />
             </div>
@@ -591,9 +580,8 @@ export default function PurchasesPage() {
               <input
                 ref={refRefNum}
                 type="text"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.referenceNumber ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.referenceNumber ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="e.g. TN-4587"
                 value={formData.referenceNumber}
                 onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
@@ -609,9 +597,8 @@ export default function PurchasesPage() {
                 ref={refQty}
                 type="number"
                 step="any"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.quantity ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.quantity ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="0.00"
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
@@ -627,9 +614,8 @@ export default function PurchasesPage() {
                 ref={refRate}
                 type="number"
                 step="0.01"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.unitCostDollars ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.unitCostDollars ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="0.00"
                 value={formData.unitCostDollars}
                 onChange={(e) => setFormData({ ...formData, unitCostDollars: e.target.value })}
@@ -707,8 +693,8 @@ export default function PurchasesPage() {
 
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-[9px] uppercase font-bold text-gray-400">Total Driver Stock</span>
-            <p className="text-sm font-bold text-gray-800">{summary.currentStock.toLocaleString()} {unit}</p>
+            <span className="text-[9px] uppercase font-bold text-gray-400">Total Volume Purchased</span>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summary.totalQty)}</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
             <Database size={14} />
@@ -717,11 +703,11 @@ export default function PurchasesPage() {
 
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
-            <span className="text-[9px] uppercase font-bold text-gray-400">Avg Driver WAC</span>
-            <p className="text-sm font-bold text-gray-800">{symbol} {summary.currentWac.toFixed(2)}</p>
+            <span className="text-[9px] uppercase font-bold text-gray-400">Purchase Transactions</span>
+            <p className="text-sm font-bold text-gray-800">{summary.totalTransactions} Operations</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
-            <Coins size={14} />
+            <ShoppingBag size={14} />
           </div>
         </div>
       </div>
@@ -729,7 +715,7 @@ export default function PurchasesPage() {
       {/* 4. Recent Purchases Grid */}
       <div className="space-y-2">
         <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider select-none">
-           Chronological Purchase Transactions History
+          Chronological Purchase Transactions History
         </div>
         <DataGrid
           columns={columns}
@@ -777,11 +763,10 @@ export default function PurchasesPage() {
       {/* 5. Status Bar */}
       <div className="border-t pt-2 flex items-center justify-between text-[10px] text-gray-400 font-mono select-none">
         <div className="flex items-center gap-4">
-          <span>OPERATOR: {currentOperator || 'N/A'}</span>
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Malak Enterprise ERP v1.0.0</span>
+          <span>Sahara Diesels v1.0.0</span>
         </div>
       </div>
     </div>

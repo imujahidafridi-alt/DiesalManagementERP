@@ -18,12 +18,12 @@ export class BackupService {
       return this.defaultBackupFolder
     }
     
-    // In Electron environment, default to User's Documents/Malak ERP Backups
+    // In Electron environment, default to User's Documents/Sahara Diesels Backups
     const isElectron = typeof process !== 'undefined' && process.versions && !!process.versions.electron
     if (isElectron) {
       try {
         const docPath = app.getPath('documents')
-        const folder = path.join(docPath, 'Malak_ERP_Backups')
+        const folder = path.join(docPath, 'Sahara_Diesels_Backups')
         if (!fs.existsSync(folder)) {
           fs.mkdirSync(folder, { recursive: true })
         }

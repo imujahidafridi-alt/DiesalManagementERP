@@ -200,7 +200,7 @@ export class DriverService {
       totalQtyIn: lines.reduce((acc, l) => acc + l.qtyIn, 0),
       totalQtyOut: lines.reduce((acc, l) => acc + l.qtyOut, 0),
       averageBuyCost,
-      lines: lines.reverse(), // reverse back to descending chronological order
+      lines: lines, // ascending chronological order (Oldest -> Newest)
     }
   }
 

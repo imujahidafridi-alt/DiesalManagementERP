@@ -162,7 +162,7 @@ describe('Purchase Module & Retroactive WAC Propagation Integration Tests', () =
           toDriverId: driverBId,
           quantity: 500,
           transactionDate: '2026-07-05',
-          referenceNumber: 'GP-001',
+          vehicleNumber: 'GP-001',
         },
         operator
       )
@@ -178,7 +178,7 @@ describe('Purchase Module & Retroactive WAC Propagation Integration Tests', () =
           quantity: 200,
           sellingRate: 200,
           transactionDate: '2026-07-05',
-          referenceNumber: 'SAL-001',
+          vehicleNumber: 'SAL-001',
         },
         operator
       )

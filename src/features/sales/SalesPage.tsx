@@ -30,7 +30,7 @@ interface SaleFormData {
   driverId: string
   quantity: string
   sellingRateDollars: string
-  referenceNumber: string
+  vehicleNumber: string
   notes: string
 }
 
@@ -40,7 +40,7 @@ const emptyForm: SaleFormData = {
   driverId: '',
   quantity: '',
   sellingRateDollars: '',
-  referenceNumber: '',
+  vehicleNumber: '',
   notes: '',
 }
 
@@ -57,7 +57,6 @@ export default function SalesPage() {
     createSale,
     updateSale,
     deleteSale,
-    currentOperator,
     dbConnected,
     createCustomer,
   } = useAppStore()
@@ -76,10 +75,11 @@ export default function SalesPage() {
 
   // Traversals
   const refDate = useRef<HTMLInputElement>(null)
-  const refDriver = useRef<HTMLSelectElement>(null)
+  const refCustomer = useRef<HTMLDivElement>(null)
+  const refDriver = useRef<HTMLDivElement>(null)
   const refQty = useRef<HTMLInputElement>(null)
   const refRate = useRef<HTMLInputElement>(null)
-  const refRefNum = useRef<HTMLInputElement>(null)
+  const refVehicleNum = useRef<HTMLInputElement>(null)
   const refNotes = useRef<HTMLInputElement>(null)
 
   // Load datasets
@@ -133,17 +133,12 @@ export default function SalesPage() {
   }, [customers])
 
   const driverOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Select Driver...' },
-      ...drivers
-        .filter((d) => d.status === 'ACTIVE')
-        .map((d) => {
-          return {
-            value: d.id,
-            label: d.name,
-          }
-        }),
-    ]
+    return drivers
+      .filter((d) => d.status === 'ACTIVE')
+      .map((d) => ({
+        value: d.id,
+        label: d.name,
+      }))
   }, [drivers])
 
 
@@ -221,31 +216,40 @@ export default function SalesPage() {
 
   // Filtered sales log
   const filteredSales = useMemo(() => {
-    if (!searchQuery.trim()) return sales
+    let result = sales
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      result = sales.filter((s) => {
+        const customerName = customers.find((c) => c.id === s.destinationId)?.companyName || ''
+        const drvObj = drivers.find((d) => d.id === s.sourceId)
+        const driverName = drvObj ? drvObj.name : ''
 
-    const query = searchQuery.toLowerCase()
-    return sales.filter((s) => {
-      const customerName = customers.find((c) => c.id === s.destinationId)?.companyName || ''
-      const drvObj = drivers.find((d) => d.id === s.sourceId)
-      const driverName = drvObj ? drvObj.name : ''
-
-      return (
-        s.transactionNumber.toLowerCase().includes(query) ||
-        s.referenceNumber?.toLowerCase().includes(query) ||
-        customerName.toLowerCase().includes(query) ||
-        driverName.toLowerCase().includes(query) ||
-        s.notes?.toLowerCase().includes(query) ||
-        s.transactionDate.includes(query)
-      )
-    })
+        return (
+          s.transactionNumber.toLowerCase().includes(query) ||
+          s.vehicleNumber?.toLowerCase().includes(query) ||
+          customerName.toLowerCase().includes(query) ||
+          driverName.toLowerCase().includes(query) ||
+          s.notes?.toLowerCase().includes(query) ||
+          s.transactionDate.includes(query)
+        )
+      })
+    }
+    return [...result].reverse()
   }, [sales, searchQuery, customers, drivers])
 
   // --- Keyboard Traversal ---
   const handleKeyDown = (e: React.KeyboardEvent, field: keyof SaleFormData) => {
     if (e.key === 'Enter') {
+      // Do not let Enter skip any required field.
+      if (field === 'date' && !formData.date) return
+      if (field === 'customerId' && !formData.customerId) return
+      if (field === 'driverId' && !formData.driverId) return
+      if (field === 'quantity' && !formData.quantity) return
+      if (field === 'sellingRateDollars' && !formData.sellingRateDollars) return
+
       e.preventDefault()
       if (field === 'date') {
-        refDriver.current?.focus()
+        refCustomer.current?.focus()
       } else if (field === 'customerId') {
         refDriver.current?.focus()
       } else if (field === 'driverId') {
@@ -253,8 +257,8 @@ export default function SalesPage() {
       } else if (field === 'quantity') {
         refRate.current?.focus()
       } else if (field === 'sellingRateDollars') {
-        refRefNum.current?.focus()
-      } else if (field === 'referenceNumber') {
+        refVehicleNum.current?.focus()
+      } else if (field === 'vehicleNumber') {
         refNotes.current?.focus()
       } else if (field === 'notes') {
         handleSubmit()
@@ -308,7 +312,7 @@ export default function SalesPage() {
       driverId,
       quantity: String(row.quantity),
       sellingRateDollars: String((row.sellingRate / 100).toFixed(2)),
-      referenceNumber: row.referenceNumber || '',
+      vehicleNumber: row.vehicleNumber || '',
       notes: row.notes || '',
     })
     setFormErrors({})
@@ -389,7 +393,7 @@ export default function SalesPage() {
         customerId: formData.customerId,
         quantity: parseFloat(formData.quantity),
         sellingRate: Math.round(parseFloat(formData.sellingRateDollars) * 100), // in cents
-        referenceNumber: formData.referenceNumber || undefined,
+        vehicleNumber: formData.vehicleNumber || undefined,
         transactionDate: formData.date,
         notes: formData.notes || undefined,
       }
@@ -455,6 +459,7 @@ export default function SalesPage() {
           return d ? d.name : 'Unknown Driver'
         },
       },
+      { key: 'vehicleNumber', header: 'Vehicle Number', width: 100 },
       { key: 'quantity', header: `Volume (${unit})`, width: 95, type: 'number' },
       { key: 'sellingRate', header: 'Selling Rate', width: 95, type: 'currency' },
       {
@@ -470,14 +475,13 @@ export default function SalesPage() {
         render: (row) => FormattingService.formatCurrency(row.quantity * row.averageCostSnapshot),
       },
       { key: 'profitSnapshot', header: 'Profit Margin', width: 105, type: 'currency' },
-      { key: 'referenceNumber', header: 'Ref Number', width: 100 },
       {
         key: 'status',
         header: 'Status',
         width: 80,
         render: () => (
           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-50 border border-green-200 text-green-700">
-            POSTED
+            COMPLETED
           </span>
         ),
       },
@@ -567,7 +571,7 @@ export default function SalesPage() {
 
       {/* 2. Excel-like Entry Grid */}
       {isEditing && (
-        <div className="border bg-white rounded shadow-md overflow-hidden p-4 space-y-3">
+        <div className="border bg-white rounded shadow-md p-4 space-y-3">
           <div className="flex items-center justify-between border-b pb-2 select-none">
             <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
               {editId ? `Editing Sale Invoice: ${selectedTxRow?.transactionNumber}` : 'New Customer Sale Entry Grid'}
@@ -584,9 +588,8 @@ export default function SalesPage() {
               <input
                 ref={refDate}
                 type="date"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.date ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.date ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 onKeyDown={(e) => handleKeyDown(e, 'date')}
@@ -598,9 +601,11 @@ export default function SalesPage() {
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-gray-400 uppercase">Customer</label>
               <Combobox
+                ref={refCustomer}
                 options={customerOptions}
                 value={formData.customerId}
                 onChange={(val) => setFormData({ ...formData, customerId: val })}
+                onSelect={() => refDriver.current?.focus()}
                 placeholder="Lookup Customer..."
                 error={formErrors.customerId}
                 onCreateCustom={handleCreateCustomer}
@@ -615,20 +620,15 @@ export default function SalesPage() {
                   <span className="text-[9px] font-bold text-blue-600 font-mono">Stock: {FormattingService.formatQuantity(driverStock)}</span>
                 )}
               </div>
-              <select
+              <Combobox
                 ref={refDriver}
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.driverId ? 'border-red-400' : 'border-gray-300'
-                }`}
+                options={driverOptions}
                 value={formData.driverId}
-                onChange={(e) => setFormData({ ...formData, driverId: e.target.value })}
-                onKeyDown={(e) => handleKeyDown(e, 'driverId')}
-              >
-                {driverOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              {formErrors.driverId && <p className="text-[9px] text-red-500 font-bold">{formErrors.driverId}</p>}
+                onChange={(val) => setFormData({ ...formData, driverId: val })}
+                onSelect={() => refQty.current?.focus()}
+                placeholder="Select Driver..."
+                error={formErrors.driverId}
+              />
             </div>
 
             {/* Cell 4: Quantity */}
@@ -638,9 +638,8 @@ export default function SalesPage() {
                 ref={refQty}
                 type="number"
                 step="any"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.quantity ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.quantity ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="0.00"
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
@@ -656,9 +655,8 @@ export default function SalesPage() {
                 ref={refRate}
                 type="number"
                 step="0.01"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.sellingRateDollars ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.sellingRateDollars ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="0.00"
                 value={formData.sellingRateDollars}
                 onChange={(e) => setFormData({ ...formData, sellingRateDollars: e.target.value })}
@@ -678,9 +676,8 @@ export default function SalesPage() {
             {/* Cell 7: Profit Preview */}
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-gray-400 uppercase">Profit Preview</label>
-              <div className={`px-2.5 py-1.5 text-xs border rounded font-bold font-mono ${
-                parseFloat(profitPreviewDollars) >= 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
-              }`}>
+              <div className={`px-2.5 py-1.5 text-xs border rounded font-bold font-mono ${parseFloat(profitPreviewDollars) >= 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'
+                }`}>
                 {FormattingService.formatCurrency(parseFloat(profitPreviewDollars) * 100)}
               </div>
             </div>
@@ -689,15 +686,15 @@ export default function SalesPage() {
           {/* Reference and Memo Notes */}
           <div className="grid grid-cols-2 gap-3 select-none">
             <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-gray-400 uppercase">Delivery Ticket / Ref Number</label>
+              <label className="block text-[10px] font-bold text-gray-400 uppercase">Vehicle Number</label>
               <input
-                ref={refRefNum}
+                ref={refVehicleNum}
                 type="text"
                 className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                placeholder="e.g. DT-1002"
-                value={formData.referenceNumber}
-                onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
-                onKeyDown={(e) => handleKeyDown(e, 'referenceNumber')}
+                placeholder="e.g. V-4564"
+                value={formData.vehicleNumber}
+                onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value })}
+                onKeyDown={(e) => handleKeyDown(e, 'vehicleNumber')}
               />
             </div>
             <div className="space-y-1">
@@ -800,11 +797,10 @@ export default function SalesPage() {
       {/* 5. Status Bar */}
       <div className="border-t pt-2 flex items-center justify-between text-[10px] text-gray-400 font-mono select-none">
         <div className="flex items-center gap-4">
-          <span>OPERATOR: {currentOperator || 'N/A'}</span>
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Malak Enterprise ERP v1.0.0</span>
+          <span>Sahara Diesels v1.0.0</span>
         </div>
       </div>
     </div>

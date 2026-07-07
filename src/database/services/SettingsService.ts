@@ -15,10 +15,10 @@ export class SettingsService {
 
       // Add default configurations if not defined
       const defaults: Record<string, string> = {
-        company_name: 'Malak Enterprise',
+        company_name: 'Sahara Diesels',
         company_address: 'Main Terminal Warehouse, Sector 12',
         company_phone: '+966-12-345-6789',
-        company_email: 'info@malak-enterprise.com',
+        company_email: 'info@sahara-diesels.com',
         currency: 'AED',
         currency_symbol: 'AED',
         quantity_unit: 'Gallon',

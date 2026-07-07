@@ -41,9 +41,24 @@ export class FormattingService {
     return `${formattedVal} ${quantityAbbreviation}`
   }
 
+  static formatQuantityWithoutUnit(quantity: number): string {
+    const { quantityPrecision } = this.getSettings()
+    return new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: quantityPrecision,
+      maximumFractionDigits: quantityPrecision,
+    }).format(quantity)
+  }
+
   static formatUnit(quantity: number): string {
     const { quantityAbbreviation } = this.getSettings()
     return `${quantity} ${quantityAbbreviation}`
+  }
+
+  static getLocalDateString(d: Date = new Date()): string {
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   static formatRate(centsPerUnit: number): string {

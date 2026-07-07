@@ -92,7 +92,7 @@ describe('Reporting, Analytics & Search Integration Tests', () => {
         quantity: 1500,
         sellingRate: 200,
         transactionDate: '2026-06-20',
-        referenceNumber: 'SAL-0620',
+        vehicleNumber: 'SAL-0620',
         notes: 'Supply A',
       },
       operator
@@ -107,7 +107,7 @@ describe('Reporting, Analytics & Search Integration Tests', () => {
         quantity: 1000,
         sellingRate: 220,
         transactionDate: '2026-07-01',
-        referenceNumber: 'SAL-0701',
+        vehicleNumber: 'SAL-0701',
         notes: 'Supply B',
       },
       operator

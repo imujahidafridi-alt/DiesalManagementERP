@@ -238,7 +238,7 @@ describe('Customer Sales, Ledger & Profit Engine Integration Tests', () => {
           quantity: 1500,
           sellingRate: 200,
           transactionDate: '2026-07-03',
-          referenceNumber: 'SAL-INV-001',
+          vehicleNumber: 'SAL-INV-001',
           notes: 'Regular business supply',
         },
         operator
@@ -286,7 +286,7 @@ describe('Customer Sales, Ledger & Profit Engine Integration Tests', () => {
           quantity: 2000,
           sellingRate: 220,
           transactionDate: '2026-07-03',
-          referenceNumber: 'SAL-INV-001-REV',
+          vehicleNumber: 'SAL-INV-001-REV',
           notes: 'Updated invoice quantity and price',
         },
         operator

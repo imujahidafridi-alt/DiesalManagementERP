@@ -98,7 +98,7 @@ export interface IpcChannelMap {
         customerId: string
         quantity: number
         sellingRate: number
-        referenceNumber?: string
+        vehicleNumber?: string
         transactionDate: string
         notes?: string
       },
@@ -114,7 +114,7 @@ export interface IpcChannelMap {
         customerId: string
         quantity: number
         sellingRate: number
-        referenceNumber?: string
+        vehicleNumber?: string
         transactionDate: string
         notes?: string
       },
@@ -128,7 +128,7 @@ export interface IpcChannelMap {
         fromDriverId: string
         toDriverId: string
         quantity: number
-        referenceNumber?: string
+        vehicleNumber?: string
         transactionDate: string
         notes?: string
       },
@@ -143,7 +143,7 @@ export interface IpcChannelMap {
         fromDriverId: string
         toDriverId: string
         quantity: number
-        referenceNumber?: string
+        vehicleNumber?: string
         transactionDate: string
         notes?: string
       },
@@ -265,6 +265,9 @@ export interface IpcChannelMap {
   'app:reboot': { args: []; return: void }
   'app:exportDiagnostics': { args: []; return: string }
   'logger:write': { args: [log: { level: 'info' | 'warn' | 'error' | 'critical'; message: string; errorStack?: string }]; return: void }
+  'window:minimize': { args: []; return: void }
+  'window:maximize': { args: []; return: void }
+  'window:close': { args: []; return: void }
 }
 
 export interface ReportFilters {

@@ -108,7 +108,7 @@ export const saleFormSchema = z.object({
   driverId: z.string().uuid('Please select a driver'),
   quantity: z.coerce.number().positive('Quantity must be greater than 0'),
   sellingRateDollars: z.coerce.number().positive('Selling rate must be greater than 0'),
-  referenceNumber: z.string().optional(),
+  vehicleNumber: z.string().optional(),
   transactionDate: z.string().min(1, 'Date is required'),
   notes: z.string().optional(),
 })
@@ -117,7 +117,7 @@ export const transferFormSchema = z.object({
   sourceLocation: z.string().uuid('Please select a source driver'),
   destinationLocation: z.string().uuid('Please select a destination driver'),
   quantity: z.coerce.number().positive('Quantity must be greater than 0'),
-  referenceNumber: z.string().optional(),
+  vehicleNumber: z.string().optional(),
   transactionDate: z.string().min(1, 'Date is required'),
   notes: z.string().optional(),
 })

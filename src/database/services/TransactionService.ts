@@ -5,6 +5,7 @@ import { DriverRepository } from '../repositories/DriverRepository'
 import { CustomerRepository } from '../repositories/CustomerRepository'
 import { SupplierRepository } from '../repositories/SupplierRepository'
 import { InventoryService } from './InventoryService'
+import { SettingsService } from './SettingsService'
 import { generateNextTransactionNumber } from '../utils/numbering'
 import {
   validatePurchaseSchema,
@@ -111,25 +112,8 @@ export class TransactionService {
 
       await db.insert(transactions).values(ledgerRecord)
 
-      // Update snapshot cache
-      await db
-        .insert(inventoryTable)
-        .values({
-          item: data.destinationLocation,
-          currentStock: newStock,
-          weightedAverageCost: newWac,
-          lastTransactionId: txId,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: inventoryTable.item,
-          set: {
-            currentStock: newStock,
-            weightedAverageCost: newWac,
-            lastTransactionId: txId,
-            updatedAt: now,
-          },
-        })
+      // Rebuild snapshot for destination location
+      await InventoryService.rebuildSnapshot(data.destinationLocation)
 
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
@@ -154,7 +138,7 @@ export class TransactionService {
       fromDriverId: string
       toDriverId: string
       quantity: number
-      referenceNumber?: string
+      vehicleNumber?: string
       transactionDate: string
       notes?: string
     },
@@ -175,10 +159,13 @@ export class TransactionService {
       // Validate sufficient stock
       const srcStock = await InventoryService.calculateInventory(data.fromDriverId)
       if (srcStock < data.quantity) {
+        const config = await SettingsService.getSettings()
+        const unit = config.quantity_abbreviation || 'Gal'
         throw new InsufficientInventoryError(
           `Driver ${fromDriver.name}`,
           data.quantity,
-          srcStock
+          srcStock,
+          unit
         )
       }
 
@@ -219,8 +206,8 @@ export class TransactionService {
         sellingRate: 0,
         averageCostSnapshot: sourceWac,
         profitSnapshot: 0,
-        referenceNumber: data.referenceNumber || null,
-        referenceType: data.referenceNumber ? 'GATE_PASS' : null,
+        referenceNumber: data.vehicleNumber || null,
+        referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
         transactionDate: data.transactionDate,
         notes: data.notes || null,
         createdBy,
@@ -231,51 +218,9 @@ export class TransactionService {
 
       await db.insert(transactions).values(ledgerRecord)
 
-      // Update source inventory snapshot
-      const newSrcStock = Math.max(0, srcStock - data.quantity)
-      await db
-        .insert(inventoryTable)
-        .values({
-          item: data.fromDriverId,
-          currentStock: newSrcStock,
-          weightedAverageCost: sourceWac,
-          lastTransactionId: txId,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: inventoryTable.item,
-          set: {
-            currentStock: newSrcStock,
-            lastTransactionId: txId,
-            updatedAt: now,
-          },
-        })
-
-      // Update destination inventory snapshot (WAC recalculation)
-      const destStock = await InventoryService.calculateInventory(data.toDriverId)
-      const newDestStock = destStock + data.quantity
-      const newDestWac = newDestStock > 0
-        ? Math.round((destStock * (await InventoryService.calculateWeightedAverageCost(data.toDriverId)) + data.quantity * sourceWac) / newDestStock)
-        : sourceWac
-
-      await db
-        .insert(inventoryTable)
-        .values({
-          item: data.toDriverId,
-          currentStock: newDestStock,
-          weightedAverageCost: newDestWac,
-          lastTransactionId: txId,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: inventoryTable.item,
-          set: {
-            currentStock: newDestStock,
-            weightedAverageCost: newDestWac,
-            lastTransactionId: txId,
-            updatedAt: now,
-          },
-        })
+      // Rebuild snapshots for both source and destination drivers to keep them perfectly in sync
+      await InventoryService.rebuildSnapshot(data.fromDriverId)
+      await InventoryService.rebuildSnapshot(data.toDriverId)
 
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
@@ -301,7 +246,7 @@ export class TransactionService {
       customerId: string
       quantity: number
       sellingRate: number // in cents
-      referenceNumber?: string
+      vehicleNumber?: string
       transactionDate: string
       notes?: string
     },
@@ -321,10 +266,13 @@ export class TransactionService {
       // Validate sufficient stock
       const currentStock = await InventoryService.calculateInventory(data.driverId)
       if (currentStock < data.quantity) {
+        const config = await SettingsService.getSettings()
+        const unit = config.quantity_abbreviation || 'Gal'
         throw new InsufficientInventoryError(
           `Driver ${driver.name}`,
           data.quantity,
-          currentStock
+          currentStock,
+          unit
         )
       }
 
@@ -368,8 +316,8 @@ export class TransactionService {
         sellingRate: data.sellingRate,
         averageCostSnapshot: sourceWac,
         profitSnapshot: profit,
-        referenceNumber: data.referenceNumber || null,
-        referenceType: data.referenceNumber ? 'DELIVERY_NOTE' : null,
+        referenceNumber: data.vehicleNumber || null,
+        referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
         transactionDate: data.transactionDate,
         notes: data.notes || null,
         createdBy,
@@ -380,25 +328,8 @@ export class TransactionService {
 
       await db.insert(transactions).values(ledgerRecord)
 
-      // Update source inventory snapshot cache
-      const newStock = Math.max(0, currentStock - data.quantity)
-      await db
-        .insert(inventoryTable)
-        .values({
-          item: data.driverId,
-          currentStock: newStock,
-          weightedAverageCost: sourceWac,
-          lastTransactionId: txId,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: inventoryTable.item,
-          set: {
-            currentStock: newStock,
-            lastTransactionId: txId,
-            updatedAt: now,
-          },
-        })
+      // Rebuild snapshot for driver location
+      await InventoryService.rebuildSnapshot(data.driverId)
 
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
@@ -448,7 +379,11 @@ export class TransactionService {
 
         // Check source stock availability
         const stock = await InventoryService.calculateInventory(data.sourceId)
-        if (stock < data.quantity) throw new InsufficientInventoryError(data.sourceId, data.quantity, stock)
+        if (stock < data.quantity) {
+          const config = await SettingsService.getSettings()
+          const unit = config.quantity_abbreviation || 'Gal'
+          throw new InsufficientInventoryError(data.sourceId, data.quantity, stock, unit)
+        }
       }
 
       const txNumber = await generateNextTransactionNumber('RETURN', db)
@@ -579,7 +514,11 @@ export class TransactionService {
 
         // Check sufficient stock for decrease adjustments
         const stock = await InventoryService.calculateInventory(data.locationId)
-        if (stock < data.quantity) throw new InsufficientInventoryError(data.locationId, data.quantity, stock)
+        if (stock < data.quantity) {
+          const config = await SettingsService.getSettings()
+          const unit = config.quantity_abbreviation || 'Gal'
+          throw new InsufficientInventoryError(data.locationId, data.quantity, stock, unit)
+        }
       }
 
       const txNumber = await generateNextTransactionNumber('ADJUSTMENT', db)
@@ -819,7 +758,6 @@ export class TransactionService {
       destinationLocation: string
       destinationType: 'DRIVER'
       quantity: number
-      referenceNumber?: string
       transactionDate: string
       notes?: string
     },
@@ -830,7 +768,9 @@ export class TransactionService {
     return runInTransaction(async () => {
       const srcStock = await InventoryService.calculateInventory(data.sourceLocation)
       if (srcStock < data.quantity) {
-        throw new InsufficientInventoryError(data.sourceLocation, data.quantity, srcStock)
+        const config = await SettingsService.getSettings()
+        const unit = config.quantity_abbreviation || 'Gal'
+        throw new InsufficientInventoryError(data.sourceLocation, data.quantity, srcStock, unit)
       }
 
       const txNumber = await generateNextTransactionNumber('TRANSFER', db)
@@ -852,8 +792,8 @@ export class TransactionService {
         sellingRate: 0,
         averageCostSnapshot: sourceWac,
         profitSnapshot: 0,
-        referenceNumber: data.referenceNumber || null,
-        referenceType: data.referenceNumber ? 'GATE_PASS' : null,
+        referenceNumber: null,
+        referenceType: null,
         transactionDate: data.transactionDate,
         notes: data.notes || null,
         createdBy,
@@ -937,12 +877,47 @@ export class TransactionService {
       .where(isNull(transactions.deletedAt))
       .orderBy(transactions.transactionDate, transactions.createdAt)
 
+    // Sort in-memory to process inflows before transfers and outflows on the same day
+    const typePriority: Record<string, number> = {
+      'OPENING_BALANCE': 1,
+      'PURCHASE': 1,
+      'TRANSFER': 2,
+      'RETURN': 2,
+      'SALE': 3,
+      'ADJUSTMENT': 3,
+    }
+
+    activeTxs.sort((a, b) => {
+      if (a.transactionDate !== b.transactionDate) {
+        return a.transactionDate.localeCompare(b.transactionDate)
+      }
+      const pA = typePriority[a.transactionType] || 99
+      const pB = typePriority[b.transactionType] || 99
+      if (pA !== pB) {
+        return pA - pB
+      }
+      return a.createdAt.localeCompare(b.createdAt)
+    })
+
     // 2. Track running stock and WAC for all items/locations in memory
-    const runningState: Record<string, { stock: number; wac: number }> = {}
+    const runningState: Record<
+      string,
+      {
+        stock: number
+        wac: number
+        cumulative_volume: number
+        cumulative_value: number
+      }
+    > = {}
 
     const getRunning = (locationId: string) => {
       if (!runningState[locationId]) {
-        runningState[locationId] = { stock: 0, wac: 0 }
+        runningState[locationId] = {
+          stock: 0,
+          wac: 0,
+          cumulative_volume: 0,
+          cumulative_value: 0,
+        }
       }
       return runningState[locationId]
     }
@@ -957,15 +932,15 @@ export class TransactionService {
 
       if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
         const dest = getRunning(destinationId)
-        const oldStock = dest.stock
-        const oldWac = dest.wac
         
+        const newWac = (dest.cumulative_volume + quantity) > 0
+          ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+          : unitCost
+        
+        dest.cumulative_volume += quantity
+        dest.cumulative_value += quantity * unitCost
+        dest.wac = newWac
         dest.stock += quantity
-        if (dest.stock > 0) {
-          dest.wac = Math.round((oldStock * oldWac + quantity * unitCost) / dest.stock)
-        } else {
-          dest.wac = unitCost
-        }
         averageCostSnapshot = dest.wac
       } 
       else if (transactionType === 'TRANSFER') {
@@ -977,15 +952,14 @@ export class TransactionService {
         
         src.stock = Math.max(0, src.stock - quantity)
         
-        const oldDestStock = dest.stock
-        const oldDestWac = dest.wac
+        const newDestWac = (dest.cumulative_volume + quantity) > 0
+          ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+          : unitCost
         
+        dest.cumulative_volume += quantity
+        dest.cumulative_value += quantity * unitCost
+        dest.wac = newDestWac
         dest.stock += quantity
-        if (dest.stock > 0) {
-          dest.wac = Math.round((oldDestStock * oldDestWac + quantity * unitCost) / dest.stock)
-        } else {
-          dest.wac = unitCost
-        }
       } 
       else if (transactionType === 'SALE') {
         const src = getRunning(sourceId)
@@ -1002,15 +976,15 @@ export class TransactionService {
         }
         if (destinationId !== 'NONE' && destinationType === 'DRIVER') {
           const dest = getRunning(destinationId)
-          const oldStock = dest.stock
-          const oldWac = dest.wac
           
+          const newWac = (dest.cumulative_volume + quantity) > 0
+            ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+            : unitCost
+          
+          dest.cumulative_volume += quantity
+          dest.cumulative_value += quantity * unitCost
+          dest.wac = newWac
           dest.stock += quantity
-          if (dest.stock > 0) {
-            dest.wac = Math.round((oldStock * oldWac + quantity * unitCost) / dest.stock)
-          } else {
-            dest.wac = unitCost
-          }
           averageCostSnapshot = dest.wac
         }
       }
@@ -1024,11 +998,15 @@ export class TransactionService {
           const dest = getRunning(destinationId)
           unitCost = dest.wac
           averageCostSnapshot = dest.wac
-          const oldStock = dest.stock
+          
+          const newWac = (dest.cumulative_volume + quantity) > 0
+            ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+            : unitCost
+            
+          dest.cumulative_volume += quantity
+          dest.cumulative_value += quantity * unitCost
+          dest.wac = newWac
           dest.stock += quantity
-          if (dest.stock > 0) {
-            dest.wac = Math.round((oldStock * dest.wac + quantity * unitCost) / dest.stock)
-          }
         }
       }
 
@@ -1171,7 +1149,7 @@ export class TransactionService {
       fromDriverId: string
       toDriverId: string
       quantity: number
-      referenceNumber?: string
+      vehicleNumber?: string
       transactionDate: string
       notes?: string
     },
@@ -1200,10 +1178,13 @@ export class TransactionService {
       const priorQty = prior.sourceId === data.fromDriverId ? prior.quantity : 0
       const availableStock = srcStock + priorQty
       if (availableStock < data.quantity) {
+        const config = await SettingsService.getSettings()
+        const unit = config.quantity_abbreviation || 'Gal'
         throw new InsufficientInventoryError(
           `Driver ${fromDriver.name}`,
           data.quantity,
-          availableStock
+          availableStock,
+          unit
         )
       }
 
@@ -1214,7 +1195,8 @@ export class TransactionService {
           sourceId: data.fromDriverId,
           destinationId: data.toDriverId,
           quantity: data.quantity,
-          referenceNumber: data.referenceNumber || null,
+          referenceNumber: data.vehicleNumber || null,
+          referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
           transactionDate: data.transactionDate,
           notes: data.notes || null,
           updatedAt: now,
@@ -1259,7 +1241,7 @@ export class TransactionService {
       customerId: string
       quantity: number
       sellingRate: number // in cents
-      referenceNumber?: string
+      vehicleNumber?: string
       transactionDate: string
       notes?: string
     },
@@ -1287,10 +1269,13 @@ export class TransactionService {
       const priorQty = prior.sourceId === data.driverId ? prior.quantity : 0
       const availableStock = srcStock + priorQty
       if (availableStock < data.quantity) {
+        const config = await SettingsService.getSettings()
+        const unit = config.quantity_abbreviation || 'Gal'
         throw new InsufficientInventoryError(
           `Driver ${driver.name}`,
           data.quantity,
-          availableStock
+          availableStock,
+          unit
         )
       }
 
@@ -1311,7 +1296,8 @@ export class TransactionService {
           sellingRate: data.sellingRate,
           averageCostSnapshot: sourceWac,
           profitSnapshot: profit,
-          referenceNumber: data.referenceNumber || null,
+          referenceNumber: data.vehicleNumber || null,
+          referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
           transactionDate: data.transactionDate,
           notes: data.notes || null,
           updatedAt: now,

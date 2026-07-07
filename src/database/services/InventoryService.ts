@@ -2,6 +2,7 @@ import { TransactionRepository } from '../repositories/TransactionRepository'
 import { InventoryRepository } from '../repositories/InventoryRepository'
 import { Inventory } from '../repositories/interfaces'
 import { InsufficientInventoryError } from '../errors'
+import { SettingsService } from './SettingsService'
 
 const txRepo = new TransactionRepository()
 const invRepo = new InventoryRepository()
@@ -103,7 +104,9 @@ export class InventoryService {
   static async validateInventory(item: string, quantityNeeded: number): Promise<void> {
     const currentStock = await this.calculateInventory(item)
     if (currentStock < quantityNeeded) {
-      throw new InsufficientInventoryError(item, quantityNeeded, currentStock)
+      const config = await SettingsService.getSettings()
+      const unit = config.quantity_abbreviation || 'Gal'
+      throw new InsufficientInventoryError(item, quantityNeeded, currentStock, unit)
     }
   }
 

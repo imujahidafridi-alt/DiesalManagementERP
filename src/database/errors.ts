@@ -14,9 +14,9 @@ export class DomainError extends Error {
 }
 
 export class InsufficientInventoryError extends DomainError {
-  constructor(item: string, requested: number, available: number) {
+  constructor(item: string, requested: number, available: number, unit: string = 'Gal') {
     super(
-      `Insufficient stock for inventory location "${item}". Requested: ${requested}L, Available: ${available}L.`,
+      `Insufficient stock for inventory location "${item}". Requested: ${requested} ${unit}, Available: ${available} ${unit}.`,
       'INSUFFICIENT_INVENTORY'
     )
   }

@@ -117,7 +117,6 @@ describe('Driver Ledger & Internal Diesel Transfer Integration Tests', () => {
           toDriverId: driverBId,
           quantity: 800,
           transactionDate: '2026-07-05',
-          referenceNumber: 'TR-TEST-01',
         },
         operator
       )
@@ -155,7 +154,6 @@ describe('Driver Ledger & Internal Diesel Transfer Integration Tests', () => {
           toDriverId: driverBId,
           quantity: 500, // Reduced transfer quantity
           transactionDate: '2026-07-05',
-          referenceNumber: 'TR-TEST-01-REV',
         },
         operator
       )

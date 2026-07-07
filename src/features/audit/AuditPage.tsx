@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Button, DataGrid, useShortcutEffect, Select } from '@/components/ui'
 import { useUiStore } from '@/store'
+import { FormattingService } from '@/utils/FormattingService'
 import {
   Search,
   RefreshCw,
@@ -15,7 +16,7 @@ export default function AuditPage() {
 
   const [loading, setLoading] = useState(false)
   const [auditLogs, setAuditLogs] = useState<any[]>([])
-  
+
   // Filters State
   const [searchQuery, setSearchQuery] = useState('')
   const [actionType, setActionType] = useState('')
@@ -32,7 +33,7 @@ export default function AuditPage() {
   useEffect(() => {
     const today = new Date()
     let start = ''
-    let end = today.toISOString().split('T')[0]
+    let end = FormattingService.getLocalDateString(today)
 
     switch (datePreset) {
       case 'today':
@@ -41,13 +42,13 @@ export default function AuditPage() {
       case 'yesterday':
         const yest = new Date()
         yest.setDate(today.getDate() - 1)
-        start = yest.toISOString().split('T')[0]
+        start = FormattingService.getLocalDateString(yest)
         end = start
         break
       case 'last_7_days':
         const l7 = new Date()
         l7.setDate(today.getDate() - 6)
-        start = l7.toISOString().split('T')[0]
+        start = FormattingService.getLocalDateString(l7)
         break
       case 'this_month':
         start = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
@@ -83,7 +84,7 @@ export default function AuditPage() {
   const filteredLogs = useMemo(() => {
     return auditLogs.filter((log) => {
       const q = searchQuery.toLowerCase().trim()
-      
+
       // Text search: matches operator, entity name, entity ID, or raw contents
       const matchesSearch =
         !q ||
@@ -150,18 +151,16 @@ export default function AuditPage() {
 
   const columns: GridColumn<any>[] = [
     { key: 'timestamp', header: 'Timestamp Date-Time', width: 145 },
-    { key: 'user', header: 'Operator', width: 110 },
     {
       key: 'action',
       header: 'Action',
       width: 95,
       render: (row) => (
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-          row.action === 'CREATE' ? 'bg-green-50 text-green-700 border border-green-200' :
+        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.action === 'CREATE' ? 'bg-green-50 text-green-700 border border-green-200' :
           row.action === 'UPDATE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-          row.action === 'DELETE' ? 'bg-red-50 text-red-700 border border-red-200' :
-          'bg-purple-50 text-purple-700 border border-purple-200'
-        }`}>
+            row.action === 'DELETE' ? 'bg-red-50 text-red-700 border border-red-200' :
+              'bg-purple-50 text-purple-700 border border-purple-200'
+          }`}>
           {row.action}
         </span>
       )
@@ -294,7 +293,7 @@ export default function AuditPage() {
       <div className="bg-white border rounded shadow-subtle p-4 print:p-0 print:border-0 print:shadow-none">
         {/* Print Header */}
         <div className="print-only hidden select-none p-4 border-b-2 mb-4">
-          <h2 className="text-sm font-black uppercase text-gray-900">Malak Enterprise System Audit Trail</h2>
+          <h2 className="text-sm font-black uppercase text-gray-900">Sahara Diesels System Audit Trail</h2>
           <div className="text-[10px] text-gray-500 font-mono mt-1">
             Print Date: {new Date().toLocaleString()} | Loaded Records: {filteredLogs.length}
           </div>

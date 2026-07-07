@@ -346,7 +346,7 @@ export default function SettingsPage() {
                 label="Backup Output Folder Path"
                 value={formData.default_backup_folder || ''}
                 onChange={(e) => handleInputChange('default_backup_folder', e.target.value)}
-                placeholder="Defaults to Documents/Malak_ERP_Backups"
+                placeholder="Defaults to Documents/Sahara_Diesels_Backups"
               />
 
               <div className="grid grid-cols-2 gap-4">

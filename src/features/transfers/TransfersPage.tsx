@@ -6,6 +6,7 @@ import {
   Button,
   DataGrid,
   useShortcutEffect,
+  Select,
 } from '@/components/ui'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
@@ -23,7 +24,7 @@ interface TransferFormData {
   fromDriverId: string
   toDriverId: string
   quantity: string
-  referenceNumber: string
+  vehicleNumber: string
   notes: string
 }
 
@@ -32,7 +33,7 @@ const emptyForm: TransferFormData = {
   fromDriverId: '',
   toDriverId: '',
   quantity: '',
-  referenceNumber: '',
+  vehicleNumber: '',
   notes: '',
 }
 
@@ -45,7 +46,6 @@ export default function TransfersPage() {
     createTransfer,
     updateTransfer,
     deleteTransfer,
-    currentOperator,
     dbConnected,
   } = useAppStore()
 
@@ -67,10 +67,10 @@ export default function TransfersPage() {
 
   // Input refs for keyboard traversals
   const refDate = useRef<HTMLInputElement>(null)
-  const refFrom = useRef<HTMLSelectElement>(null)
-  const refTo = useRef<HTMLSelectElement>(null)
+  const refFrom = useRef<HTMLDivElement>(null)
+  const refTo = useRef<HTMLDivElement>(null)
+  const refVehicleNum = useRef<HTMLInputElement>(null)
   const refQty = useRef<HTMLInputElement>(null)
-  const refRefNum = useRef<HTMLInputElement>(null)
   const refNotes = useRef<HTMLInputElement>(null)
 
   // Load dependency options
@@ -84,6 +84,7 @@ export default function TransfersPage() {
       const list = await window.api.invoke('transactions:list')
       // Filter list to TRANSFERS only
       const transfersOnly = list.filter((t) => t.transactionType === 'TRANSFER')
+      transfersOnly.reverse() // Sort ascending chronologically (1-2-3-n)
       setAllTransactions(transfersOnly)
     } catch (err) {
       console.error(err)
@@ -109,11 +110,11 @@ export default function TransfersPage() {
   }, [activeLookupId, allTransactions])
 
   // --- Derived calculations ---
-  const driverOptions = useMemo(() => {
+  const fromDriverOptions = useMemo(() => {
     return [
       { value: '', label: 'Select Driver...' },
       ...drivers
-        .filter((d) => d.status === 'ACTIVE')
+        .filter((d) => d.status === 'ACTIVE' && d.id !== formData.toDriverId)
         .map((d) => {
           return {
             value: d.id,
@@ -121,7 +122,21 @@ export default function TransfersPage() {
           }
         }),
     ]
-  }, [drivers])
+  }, [drivers, formData.toDriverId])
+
+  const toDriverOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Select Driver...' },
+      ...drivers
+        .filter((d) => d.status === 'ACTIVE' && d.id !== formData.fromDriverId)
+        .map((d) => {
+          return {
+            value: d.id,
+            label: d.name,
+          }
+        }),
+    ]
+  }, [drivers, formData.fromDriverId])
 
   const getDriverStock = (driverId: string) => {
     const snapshot = inventorySnapshots.find((i) => i.item === driverId)
@@ -154,7 +169,7 @@ export default function TransfersPage() {
       }
     })
 
-    const avgVol = allTransactions.length > 0 ? (totalVol / allTransactions.length) : 0
+    const avgVol = todayCount > 0 ? (todayVol / todayCount) : 0
 
     return {
       todayVol,
@@ -195,10 +210,10 @@ export default function TransfersPage() {
       } else if (field === 'fromDriverId') {
         refTo.current?.focus()
       } else if (field === 'toDriverId') {
+        refVehicleNum.current?.focus()
+      } else if (field === 'vehicleNumber') {
         refQty.current?.focus()
       } else if (field === 'quantity') {
-        refRefNum.current?.focus()
-      } else if (field === 'referenceNumber') {
         refNotes.current?.focus()
       } else if (field === 'notes') {
         handleSubmit()
@@ -227,7 +242,7 @@ export default function TransfersPage() {
       fromDriverId: row.sourceId || '',
       toDriverId: row.destinationId || '',
       quantity: String(row.quantity),
-      referenceNumber: row.referenceNumber || '',
+      vehicleNumber: row.referenceNumber || '',
       notes: row.notes || '',
     })
     setFormErrors({})
@@ -270,7 +285,7 @@ export default function TransfersPage() {
     if (!formData.fromDriverId) errors.fromDriverId = 'Source driver is required'
     if (!formData.toDriverId) errors.toDriverId = 'Destination driver is required'
     if (formData.fromDriverId === formData.toDriverId && formData.fromDriverId !== '') {
-      errors.toDriverId = 'Cannot transfer to the same driver'
+      errors.toDriverId = 'Source and destination drivers cannot be the same.'
     }
 
     const qty = parseFloat(formData.quantity)
@@ -305,7 +320,7 @@ export default function TransfersPage() {
         fromDriverId: formData.fromDriverId,
         toDriverId: formData.toDriverId,
         quantity: parseFloat(formData.quantity),
-        referenceNumber: formData.referenceNumber || undefined,
+        vehicleNumber: formData.vehicleNumber || undefined,
         transactionDate: formData.date,
         notes: formData.notes || undefined,
       }
@@ -374,10 +389,9 @@ export default function TransfersPage() {
           return d ? d.name : 'Unknown Driver'
         },
       },
+      { key: 'referenceNumber', header: 'Vehicle Number', width: 110 },
       { key: 'quantity', header: `Volume (${unit})`, width: 100, type: 'number' },
-      { key: 'referenceNumber', header: 'Ref Number', width: 100 },
       { key: 'notes', header: 'Notes/Memo', width: 180 },
-      { key: 'createdBy', header: 'Operator', width: 110 },
       {
         key: 'status',
         header: 'Status',
@@ -411,7 +425,7 @@ export default function TransfersPage() {
             variant={isEditing ? 'primary' : 'outline'}
             size="sm"
             onClick={handleSubmit}
-            disabled={!isEditing}
+            disabled={!isEditing || (formData.fromDriverId === formData.toDriverId && formData.fromDriverId !== '')}
             className="gap-2"
           >
             <Save size={13} />
@@ -460,10 +474,10 @@ export default function TransfersPage() {
 
       {/* 2. Transfer Entry Form Grid */}
       {isEditing && (
-        <div className="border bg-white rounded shadow-md overflow-hidden p-4 space-y-3">
+        <div className="border bg-white rounded shadow-md p-4 space-y-3">
           <div className="flex items-center justify-between border-b pb-2 select-none">
             <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-              {editId ? `Editing Transfer: ${selectedTxRow?.transactionNumber}` : 'Internal Diesel Transfer Form Grid'}
+              {editId ? `Editing Transfer: ${selectedTxRow?.transactionNumber}` : 'Internal Diesel Transfer Form'}
             </span>
             <Button variant="outline" size="sm" onClick={handleCancel}>
               Cancel [Esc]
@@ -477,9 +491,8 @@ export default function TransfersPage() {
               <input
                 ref={refDate}
                 type="date"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.date ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.date ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 value={formData.date}
                 onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 onKeyDown={(e) => handleKeyDown(e, 'date')}
@@ -492,23 +505,17 @@ export default function TransfersPage() {
               <div className="flex items-center justify-between">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase">From Driver</label>
                 {formData.fromDriverId && (
-                  <span className="text-[9px] font-bold text-blue-600 font-mono">Bal: {fromDriverStock.toLocaleString()} {unit}</span>
+                  <span className="text-[9px] font-bold text-blue-600 font-mono">Bal: {FormattingService.formatQuantity(fromDriverStock)}</span>
                 )}
               </div>
-              <select
+              <Select
                 ref={refFrom}
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.fromDriverId ? 'border-red-400' : 'border-gray-300'
-                }`}
+                error={formErrors.fromDriverId}
                 value={formData.fromDriverId}
                 onChange={(e) => setFormData({ ...formData, fromDriverId: e.target.value })}
                 onKeyDown={(e) => handleKeyDown(e, 'fromDriverId')}
-              >
-                {driverOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              {formErrors.fromDriverId && <p className="text-[9px] text-red-500 font-bold">{formErrors.fromDriverId}</p>}
+                options={fromDriverOptions}
+              />
             </div>
 
             {/* Cell 3: To Driver */}
@@ -516,35 +523,42 @@ export default function TransfersPage() {
               <div className="flex items-center justify-between">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase">To Driver</label>
                 {formData.toDriverId && (
-                  <span className="text-[9px] font-bold text-green-600 font-mono">Bal: {toDriverStock.toLocaleString()} {unit}</span>
+                  <span className="text-[9px] font-bold text-green-600 font-mono">Bal: {FormattingService.formatQuantity(toDriverStock)}</span>
                 )}
               </div>
-              <select
+              <Select
                 ref={refTo}
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.toDriverId ? 'border-red-400' : 'border-gray-300'
-                }`}
+                error={formErrors.toDriverId || (formData.fromDriverId === formData.toDriverId && formData.fromDriverId !== '' ? 'Source and destination drivers cannot be the same.' : undefined)}
                 value={formData.toDriverId}
                 onChange={(e) => setFormData({ ...formData, toDriverId: e.target.value })}
                 onKeyDown={(e) => handleKeyDown(e, 'toDriverId')}
-              >
-                {driverOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
-              {formErrors.toDriverId && <p className="text-[9px] text-red-500 font-bold">{formErrors.toDriverId}</p>}
+                options={toDriverOptions}
+              />
             </div>
 
-            {/* Cell 4: Quantity */}
+            {/* Cell 4: Vehicle Number */}
+            <div className="space-y-1">
+              <label className="block text-[10px] font-bold text-gray-400 uppercase">Vehicle Number</label>
+              <input
+                ref={refVehicleNum}
+                type="text"
+                className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                placeholder="e.g. TN-4587"
+                value={formData.vehicleNumber}
+                onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value })}
+                onKeyDown={(e) => handleKeyDown(e, 'vehicleNumber')}
+              />
+            </div>
+
+            {/* Cell 5: Quantity */}
             <div className="space-y-1">
               <label className="block text-[10px] font-bold text-gray-400 uppercase">Quantity ({unit})</label>
               <input
                 ref={refQty}
                 type="number"
                 step="any"
-                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${
-                  formErrors.quantity ? 'border-red-400' : 'border-gray-300'
-                }`}
+                className={`w-full px-2.5 py-1.5 text-xs bg-white border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none ${formErrors.quantity ? 'border-red-400' : 'border-gray-300'
+                  }`}
                 placeholder="0.00"
                 value={formData.quantity}
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
@@ -553,23 +567,9 @@ export default function TransfersPage() {
               {formErrors.quantity && <p className="text-[9px] text-red-500 font-bold">{formErrors.quantity}</p>}
             </div>
 
-            {/* Cell 5: Ref number */}
-            <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-gray-400 uppercase">Ref/Waybill Number</label>
-              <input
-                ref={refRefNum}
-                type="text"
-                className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                placeholder="e.g. TR-1002"
-                value={formData.referenceNumber}
-                onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
-                onKeyDown={(e) => handleKeyDown(e, 'referenceNumber')}
-              />
-            </div>
-
             {/* Cell 6: Notes */}
             <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-gray-400 uppercase">Transfer Memo Notes</label>
+              <label className="block text-[10px] font-bold text-gray-400 uppercase">Transfer Notes</label>
               <input
                 ref={refNotes}
                 type="text"
@@ -589,7 +589,7 @@ export default function TransfersPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Total Transferred Today</span>
-            <p className="text-sm font-bold text-gray-800">{summaries.todayVol.toLocaleString()} {unit}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.todayVol)}</p>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded">
             <ArrowRightLeft size={14} />
@@ -609,7 +609,7 @@ export default function TransfersPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Average Transfer Volume</span>
-            <p className="text-sm font-bold text-gray-800">{Math.round(summaries.avgVol).toLocaleString()} {unit}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.avgVol)}</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
             <ArrowRightLeft size={14} />
@@ -638,11 +638,10 @@ export default function TransfersPage() {
       {/* 5. Status Bar */}
       <div className="border-t pt-2 flex items-center justify-between text-[10px] text-gray-400 font-mono select-none">
         <div className="flex items-center gap-4">
-          <span>OPERATOR: {currentOperator || 'N/A'}</span>
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Malak Enterprise ERP v1.0.0</span>
+          <span>Sahara Diesels v1.0.0</span>
         </div>
       </div>
     </div>

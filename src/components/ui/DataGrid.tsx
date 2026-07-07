@@ -10,6 +10,7 @@ export interface GridColumn<T> {
   sortable?: boolean
   editable?: boolean
   type?: 'text' | 'number' | 'currency'
+  align?: 'left' | 'center' | 'right'
   render?: (row: T, rowIndex: number) => React.ReactNode
 }
 
@@ -274,7 +275,7 @@ export default function DataGrid<T extends Record<string, any>>({
       ref={gridRef}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      className="w-full border rounded bg-white shadow-subtle overflow-auto max-h-[500px] focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+      className="w-full border rounded bg-white shadow-subtle overflow-auto max-h-[500px] md:max-h-full focus:outline-none focus:ring-1 focus:ring-blue-500/30"
     >
       <table className="w-full border-collapse table-fixed text-xs text-left">
         {/* Table Headers */}
@@ -287,16 +288,22 @@ export default function DataGrid<T extends Record<string, any>>({
 
             {columns.map((col, cIdx) => {
               const isSorted = sortKey === col.key
+              const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
+              const isCenterAlign = col.align === 'center'
               return (
                 <th
                   key={col.key}
                   style={{ width: colWidths[col.key] || 120 }}
                   className={clsx(
                     'px-3 py-2 border-r font-semibold text-gray-700 relative align-middle group truncate',
+                    isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
                     stickyFirstColumn && cIdx === 0 && 'sticky left-0 bg-gray-50 z-10'
                   )}
                 >
-                  <div className="flex items-center justify-between gap-1.5">
+                  <div className={clsx(
+                    'flex items-center gap-1.5',
+                    isRightAlign ? 'justify-end' : isCenterAlign ? 'justify-center' : 'justify-between'
+                  )}>
                     <span
                       className={clsx(col.sortable && 'cursor-pointer select-none hover:text-gray-900')}
                       onClick={() => col.sortable && toggleSort(col.key)}
@@ -361,6 +368,8 @@ export default function DataGrid<T extends Record<string, any>>({
                   {columns.map((col, cIdx) => {
                     const isFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colIndex === cIdx
                     const isEditing = editingCell?.rowIndex === rIdx && editingCell?.colIndex === cIdx
+                    const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
+                    const isCenterAlign = col.align === 'center'
                     
                     return (
                       <td
@@ -369,6 +378,7 @@ export default function DataGrid<T extends Record<string, any>>({
                         onDoubleClick={() => startEditing(rIdx, cIdx)}
                         className={clsx(
                           'px-3 py-1.5 border-r truncate font-medium align-middle relative focus:outline-none',
+                          isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
                           stickyFirstColumn && cIdx === 0 && (isRowSelected ? 'sticky left-0 bg-blue-50 z-10' : 'sticky left-0 bg-white z-10'),
                           {
                             'ring-1 ring-blue-500 ring-inset': isFocused && !isEditing,

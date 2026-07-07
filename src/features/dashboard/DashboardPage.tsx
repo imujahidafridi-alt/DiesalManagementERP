@@ -161,19 +161,7 @@ export default function DashboardPage() {
     // 5. Recent Active Alerts
     const alerts: { title: string; desc: string; type: 'warning' | 'info' }[] = []
     
-    // Low driver stock warnings (safety threshold = 500 default)
-    drivers.forEach((d) => {
-      const snap = inventorySnapshots.find((s) => s.item === d.id)
-      const stock = snap ? snap.currentStock : 0
-      const safetyLimit = 500
-      if (stock < safetyLimit) {
-        alerts.push({
-          title: 'Low Driver Stock Warning',
-          desc: `Driver ${d.name} stock level is low: ${FormattingService.formatQuantity(stock)} (Threshold: ${FormattingService.formatQuantity(safetyLimit)}).`,
-          type: 'warning',
-        })
-      }
-    })
+
 
     // Top driver stock holder info alert
     let maxStock = -1

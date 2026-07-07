@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
-import { useUiStore } from '@/store'
+import { useUiStore, useAppStore } from '@/store'
+import Logo from '@/components/common/Logo'
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -35,6 +36,7 @@ const navItems = [
 
 export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useUiStore()
+  const { dbConnected } = useAppStore()
 
   return (
     <aside
@@ -44,21 +46,36 @@ export default function Sidebar() {
       )}
     >
       <div className="flex flex-col flex-1">
-        {/* Brand Header */}
-        <div className="h-12 border-b flex items-center px-4 justify-between">
-          {!sidebarCollapsed && (
-            <span className="font-bold text-sm text-blue-600 tracking-tight">
-              MALAK ERP
-            </span>
-          )}
-          <button
-            onClick={toggleSidebar}
-            className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-900 focus:outline-none transition-colors"
-            title={sidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-          >
-            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-          </button>
-        </div>
+        {/* Brand Header & Toggle */}
+        {sidebarCollapsed ? (
+          <div className="h-9 border-b flex items-center justify-center">
+            <button
+              onClick={toggleSidebar}
+              className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-900 focus:outline-none transition-colors"
+              title="Expand Sidebar"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        ) : (
+          <div className="border-b pb-3 flex flex-col">
+            <div className="flex justify-end px-2 pt-1">
+              <button
+                onClick={toggleSidebar}
+                className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-900 focus:outline-none transition-colors"
+                title="Collapse Sidebar"
+              >
+                <ChevronLeft size={16} />
+              </button>
+            </div>
+            <div className="flex flex-col items-center px-4 mt-1 select-none">
+              <Logo className="w-full h-auto max-h-16" />
+              <span className="text-[9px] font-bold text-gray-500 mt-2 uppercase text-center tracking-wider leading-tight">
+                Sahara Group General Transport
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Navigation Items */}
         <nav className="flex-1 py-2 px-2 space-y-1">
@@ -87,7 +104,7 @@ export default function Sidebar() {
 
       {/* Footer / Status */}
       <div className="p-3 border-t text-[10px] text-gray-400 font-mono text-center">
-        {!sidebarCollapsed ? 'v1.0.0 (Offline)' : 'v1'}
+        {!sidebarCollapsed ? `v1.0.0 (${dbConnected ? 'Online' : 'Offline'})` : (dbConnected ? 'ON' : 'OFF')}
       </div>
     </aside>
   )

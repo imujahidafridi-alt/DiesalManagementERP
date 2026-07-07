@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import Logo from '@/components/common/Logo'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import { PdfService } from '@/utils/PdfService'
@@ -67,7 +68,7 @@ export default function DriversPage() {
   const [statementReport, setStatementReport] = useState<any | null>(null)
   const [statementLoading, setStatementLoading] = useState(false)
   const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [endDate, setEndDate] = useState(() => FormattingService.getLocalDateString())
   const [statementTab, setStatementTab] = useState<'inventory' | 'sales'>('inventory')
 
 
@@ -210,10 +211,11 @@ export default function DriversPage() {
     PdfService.generateReportPDF('driver_inventory_ledger_detail', statementReport.lines, {
       startDate,
       endDate,
-      companyName: 'Malak Enterprise',
+      companyName: 'Sahara Diesels',
       title: 'Driver Inventory Ledger Statement',
       partyName: statementReport.driverName,
       operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+      openingBalance: statementReport.openingBalance,
     })
   }
 
@@ -225,7 +227,7 @@ export default function DriversPage() {
     PdfService.generateReportPDF('driver_sales_ledger_detail', salesLines, {
       startDate,
       endDate,
-      companyName: 'Malak Enterprise',
+      companyName: 'Sahara Diesels',
       title: 'Driver Sales Ledger Statement',
       partyName: statementReport.driverName,
       operator: localStorage.getItem('diesel_user') || 'ERP Operator',
@@ -280,18 +282,21 @@ export default function DriversPage() {
       key: 'qtyIn',
       header: `Qty In (${unit})`,
       width: 95,
+      align: 'right',
       render: (row) => row.qtyIn > 0 ? FormattingService.formatQuantity(row.qtyIn) : '-'
     },
     {
       key: 'qtyOut',
       header: `Qty Out (${unit})`,
       width: 95,
+      align: 'right',
       render: (row) => row.qtyOut > 0 ? FormattingService.formatQuantity(row.qtyOut) : '-'
     },
     {
       key: 'rate',
       header: 'Rate/Cost',
       width: 95,
+      align: 'right',
       render: (row) => {
         const rate = row.transactionType === 'SALE' ? row.sellingRate : (row.averageCostSnapshot || row.unitCost || 0)
         return rate > 0 ? FormattingService.formatRate(rate) : '-'
@@ -301,12 +306,14 @@ export default function DriversPage() {
       key: 'referenceNumber',
       header: 'Vehicle No',
       width: 95,
-      render: (row) => row.transactionType === 'PURCHASE' ? (row.referenceNumber || '-') : '-'
+      align: 'right',
+      render: (row) => row.referenceNumber || '-'
     },
     {
       key: 'runningBalance',
       header: `Running Bal (${unit})`,
       width: 110,
+      align: 'right',
       render: (row) => FormattingService.formatQuantity(row.runningBalance)
     },
   ], [unit, symbol])
@@ -319,24 +326,28 @@ export default function DriversPage() {
       key: 'volume',
       header: `Sold Volume (${unit})`,
       width: 95,
+      align: 'right',
       render: (row) => FormattingService.formatQuantity(row.volume || row.quantity || 0)
     },
     {
       key: 'sellingRate',
       header: 'Sale Price',
       width: 95,
+      align: 'right',
       render: (row) => FormattingService.formatRate(row.sellingRate || 0)
     },
     {
       key: 'averageCostSnapshot',
       header: 'Buy Cost',
       width: 95,
+      align: 'right',
       render: (row) => FormattingService.formatRate(row.averageCostSnapshot || row.unitCost || 0)
     },
     {
       key: 'profitPerUnit',
       header: 'Profit per Unit',
       width: 100,
+      align: 'right',
       render: (row) => {
         const buyCost = row.averageCostSnapshot || row.unitCost || 0
         const profit = (row.sellingRate || 0) - buyCost
@@ -347,6 +358,7 @@ export default function DriversPage() {
       key: 'saleAmount',
       header: 'Sale Amount',
       width: 110,
+      align: 'right',
       render: (row) => {
         const qty = row.volume || row.quantity || 0
         const amount = qty * (row.sellingRate || 0)
@@ -357,6 +369,7 @@ export default function DriversPage() {
       key: 'totalProfit',
       header: 'Total Profit',
       width: 110,
+      align: 'right',
       render: (row) => {
         const qty = row.volume || row.quantity || 0
         const buyCost = row.averageCostSnapshot || row.unitCost || 0
@@ -458,7 +471,7 @@ export default function DriversPage() {
                 <h3 className="text-2xl font-black text-blue-900 mt-1 font-mono">
                   {(() => {
                     const snap = inventorySnapshots.find((s) => s.item === selectedDriver.id)
-                    return `${FormattingService.formatQuantity(snap ? snap.currentStock : 0)} ${unit}`
+                    return FormattingService.formatQuantity(snap ? snap.currentStock : 0)
                   })()}
                 </h3>
               </div>
@@ -597,7 +610,7 @@ export default function DriversPage() {
       {/* Printable Statement Modal */}
       {isStatementOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 print:bg-white print:inset-auto print:static">
-          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-6xl h-[85vh] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
+          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-7xl h-[85vh] flex flex-col p-6 space-y-4 overflow-hidden print:overflow-visible print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
             {/* Modal Header (Hidden on print) */}
             <div className="flex items-center justify-between border-b pb-2 print:hidden select-none">
               <div className="space-y-0.5">
@@ -679,19 +692,43 @@ export default function DriversPage() {
                 Querying database ledger entries...
               </div>
             ) : statementReport ? (
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+               <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+                {/* Screen-only Driver Info Block */}
+                <div className="print:hidden flex flex-col space-y-0.5 border-b pb-2 select-none text-xs text-gray-700">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-gray-400 uppercase tracking-wider text-[9px]">Driver:</span>
+                    <span className="font-bold text-gray-900 text-sm">{statementReport.driverName}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <span className="font-semibold">Statement Period:</span>
+                    <span>{startDate || 'Creation'} to {endDate || 'Present'}</span>
+                  </div>
+                </div>
+
                 {/* Print Title Block */}
-                <div className="border-b-2 pb-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h1 className="text-lg font-black text-gray-800 uppercase tracking-tight">Malak Enterprise ERP</h1>
-                      <p className="text-[10px] text-gray-400">
-                        {statementTab === 'inventory' ? 'Driver Stock Ledger Statement' : 'Driver Sales Ledger Statement'}
-                      </p>
-                    </div>
-                    <div className="text-right text-xs">
-                      <p><span className="text-gray-400">Driver:</span> <strong className="text-gray-700">{statementReport.driverName}</strong></p>
-                      <p><span className="text-gray-400">Statement Period:</span> <strong className="text-gray-700">{statementReport.startDate || 'Creation'} to {statementReport.endDate || 'Present'}</strong></p>
+                <div className="hidden print:flex justify-between items-start w-full border-b border-gray-300 pb-4 mb-4 print:w-full print:border-b print:border-gray-300 print:pb-4 print:mb-4">
+                  {/* Left Column: Brand Identity */}
+                  <div className="flex flex-col print:flex print:flex-col">
+                    <Logo className="h-10 w-auto self-start print:h-10 print:w-auto print:self-start" />
+                    <span className="text-[10px] font-black text-gray-600 mt-1.5 uppercase tracking-wider print:text-[10px] print:font-black print:text-gray-600 print:mt-1.5 print:uppercase print:tracking-wider">
+                      Sahara Group General Transport
+                    </span>
+                  </div>
+
+                  {/* Right Column: Report Meta Data */}
+                  <div className="flex flex-col text-right items-end print:flex print:flex-col print:text-right print:items-end">
+                    <h1 className="text-xl font-bold text-gray-900 print:text-xl print:font-bold print:text-gray-900">
+                      {statementTab === 'inventory' ? 'Driver Stock Ledger Statement' : 'Driver Sales Ledger Statement'}
+                    </h1>
+                    <p className="text-sm font-semibold text-gray-700 mt-1 print:text-sm print:font-semibold print:text-gray-700 print:mt-1">
+                      Party Name: {statementReport.driverName}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 print:text-xs print:text-gray-500 print:mt-1">
+                      Date Range: {statementReport.startDate || 'Creation'} to {statementReport.endDate || 'Present'}
+                    </p>
+                    <div className="text-[10px] text-gray-400 mt-2 print:text-[10px] print:text-gray-400 print:mt-2 space-y-0.5">
+                      <p>Generated By: {localStorage.getItem('diesel_user') || 'ERP Operator'}</p>
+                      <p>Generated On: {new Date().toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
