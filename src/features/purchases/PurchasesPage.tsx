@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import {
@@ -34,7 +35,7 @@ interface PurchaseFormData {
 }
 
 const emptyForm: PurchaseFormData = {
-  date: new Date().toISOString().slice(0, 10),
+  date: new Date().toLocaleDateString('en-CA'),
   supplierId: '',
   destinationLocation: 'Main Tank A',
   referenceNumber: '',
@@ -128,8 +129,8 @@ export default function PurchasesPage() {
 
   // Summary statistics
   const summary = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const currentMonthStr = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const todayStr = new Date().toLocaleDateString('en-CA')
+    const currentMonthStr = new Date().toLocaleDateString('en-CA').slice(0, 7) // YYYY-MM
 
     let todayVol = 0
     let todayAmt = 0
@@ -220,7 +221,7 @@ export default function PurchasesPage() {
   const handleNew = () => {
     setFormData({
       ...emptyForm,
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date().toLocaleDateString('en-CA'),
     })
     setFormErrors({})
     setEditId(null)
@@ -396,7 +397,7 @@ export default function PurchasesPage() {
   // --- 7. Column Configuration for History Table ---
   const columns = useMemo((): GridColumn<any>[] => {
     return [
-      { key: 'transactionNumber', header: 'Tx Number', width: 95 },
+      { key: 'transactionNumber', header: 'Invoice No', width: 95 },
       { key: 'transactionDate', header: 'Date', width: 90 },
       {
         key: 'supplier',
@@ -446,7 +447,7 @@ export default function PurchasesPage() {
             className="gap-2"
           >
             <Plus size={13} />
-            <span>New <kbd className="text-[10px] font-mono opacity-60 ml-1">Ctrl+N</kbd></span>
+            <span>New Purchase <kbd className="text-[10px] font-mono opacity-60 ml-1">Ctrl+N</kbd></span>
           </Button>
 
           <Button
@@ -766,7 +767,7 @@ export default function PurchasesPage() {
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Sahara Diesels v1.0.0</span>
+          <span>Sahara Diesels {appConfig.version}</span>
         </div>
       </div>
     </div>

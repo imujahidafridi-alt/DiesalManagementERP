@@ -25,7 +25,7 @@ export class PdfService {
     options: PdfServiceOptions = {}
   ): void {
     // Default to A4 Landscape, Portrait for ledgers
-    const isLedger = ['customer_ledger_detail', 'driver_inventory_ledger_detail', 'driver_sales_ledger_detail'].includes(reportType)
+    const isLedger = ['customer_ledger_detail', 'driver_inventory_ledger_detail', 'driver_sales_ledger_detail', 'purchase_register', 'sales_register', 'transfer_register'].includes(reportType)
     const doc = new jsPDF({
       orientation: isLedger ? 'portrait' : 'landscape',
       unit: 'mm',
@@ -390,7 +390,7 @@ export class PdfService {
 
       case 'purchase_register': {
         headers = [
-          { content: 'Tx No', styles: { halign: 'left' } },
+          { content: 'Invoice No', styles: { halign: 'left' } },
           { content: 'Date', styles: { halign: 'left' } },
           { content: 'Supplier Refinery', styles: { halign: 'left' } },
           { content: 'Volume', styles: { halign: 'right' } },
@@ -438,15 +438,15 @@ export class PdfService {
 
       case 'sales_register': {
         headers = [
-          'Invoice No',
-          'Date',
-          'Customer Co.',
-          'Volume',
-          'Sale Rate',
-          'WAC Cost',
-          'Revenue',
-          'Gross Profit',
-          'Vehicle Number',
+          { content: 'Invoice No', styles: { halign: 'left' } },
+          { content: 'Date', styles: { halign: 'left' } },
+          { content: 'Customer Co.', styles: { halign: 'left' } },
+          { content: 'Volume', styles: { halign: 'right' } },
+          { content: 'Sale Rate', styles: { halign: 'right' } },
+          { content: 'Unit Cost', styles: { halign: 'right' } },
+          { content: 'Revenue', styles: { halign: 'right' } },
+          { content: 'Gross Profit', styles: { halign: 'right' } },
+          { content: 'Vehicle Number', styles: { halign: 'right' } },
         ]
 
         let totalVol = 0
@@ -462,26 +462,30 @@ export class PdfService {
 
           return [
             row.transactionNumber || 'N/A',
-            new Date(row.transactionDate).toLocaleDateString(),
+            row.transactionDate ? (() => {
+              const d = new Date(row.transactionDate)
+              const day = String(d.getDate()).padStart(2, '0')
+              const month = String(d.getMonth() + 1).padStart(2, '0')
+              const year = d.getFullYear()
+              return `${day}/${month}/${year}`
+            })() : '',
             customerName,
-            FormattingService.formatQuantity(row.quantity || 0),
-            FormattingService.formatRate(row.sellingRate || 0),
-            FormattingService.formatRate(row.averageCostSnapshot || 0),
-            FormattingService.formatCurrency(rowRevenue),
-            FormattingService.formatCurrency(row.profitSnapshot || 0),
-            row.vehicleNumber || '-',
+            FormattingService.formatQuantityWithoutUnit(row.quantity || 0),
+            FormattingService.formatCurrencyWithoutSymbol(row.sellingRate || 0),
+            FormattingService.formatCurrencyWithoutSymbol(row.averageCostSnapshot || row.unitCost || 0),
+            FormattingService.formatCurrencyWithoutSymbol(rowRevenue),
+            FormattingService.formatCurrencyWithoutSymbol(row.profitSnapshot || 0),
+            row.vehicleNumber || row.referenceNumber || '-',
           ]
         })
 
         foot = [[
-          'Total / Summary',
+          { content: 'Total / Summary', colSpan: 3, styles: { halign: 'left' } },
+          { content: FormattingService.formatQuantityWithoutUnit(totalVol), styles: { halign: 'right' } },
           '',
           '',
-          FormattingService.formatQuantity(totalVol),
-          '',
-          '',
-          FormattingService.formatCurrency(totalRevenue),
-          FormattingService.formatCurrency(totalProfit),
+          { content: FormattingService.formatCurrencyWithoutSymbol(totalRevenue), styles: { halign: 'right' } },
+          { content: FormattingService.formatCurrencyWithoutSymbol(totalProfit), styles: { halign: 'right' } },
           '',
         ]]
 
@@ -491,22 +495,25 @@ export class PdfService {
           5: { halign: 'right' },
           6: { halign: 'right' },
           7: { halign: 'right' },
+          8: { halign: 'right' },
         }
         break
       }
 
       case 'transfer_register': {
         headers = [
-          'Gate Pass No',
-          'Date',
-          'Source Location',
-          'Destination',
-          'Vehicle Number',
-          'Volume',
-          'WAC Cost',
+          { content: 'Invoice No', styles: { halign: 'left' } },
+          { content: 'Date', styles: { halign: 'left' } },
+          { content: 'From', styles: { halign: 'left' } },
+          { content: 'To', styles: { halign: 'left' } },
+          { content: 'Vehicle Number', styles: { halign: 'right' } },
+          { content: 'Volume', styles: { halign: 'right' } },
+          { content: 'WAC Rate', styles: { halign: 'right' } },
+          { content: 'Total Value', styles: { halign: 'right' } },
         ]
 
         let totalVol = 0
+        let totalAmt = 0
 
         body = data.map((row) => {
           const source = drivers.find((drv) => drv.id === row.sourceId)?.name ||
@@ -515,32 +522,41 @@ export class PdfService {
           const destination = drivers.find((drv) => drv.id === row.destinationId)?.name ||
             customers.find((c) => c.id === row.destinationId)?.companyName ||
             row.destinationId
+          const rowVal = Math.round((row.quantity || 0) * (row.unitCost || 0))
           totalVol += row.quantity || 0
+          totalAmt += rowVal
 
           return [
             row.transactionNumber || 'N/A',
-            new Date(row.transactionDate).toLocaleDateString(),
+            row.transactionDate ? (() => {
+              const d = new Date(row.transactionDate)
+              const day = String(d.getDate()).padStart(2, '0')
+              const month = String(d.getMonth() + 1).padStart(2, '0')
+              const year = d.getFullYear()
+              return `${day}/${month}/${year}`
+            })() : '',
             source,
             destination,
-            row.referenceNumber || '-',
-            FormattingService.formatQuantity(row.quantity || 0),
-            FormattingService.formatRate(row.unitCost || 0),
+            row.referenceNumber || '—',
+            FormattingService.formatQuantityWithoutUnit(row.quantity || 0),
+            FormattingService.formatCurrencyWithoutSymbol(row.unitCost || 0),
+            FormattingService.formatCurrencyWithoutSymbol(rowVal),
           ]
         })
 
         foot = [[
-          'Total / Summary',
+          { content: 'Total / Summary', colSpan: 4, styles: { halign: 'left' } },
           '',
+          { content: FormattingService.formatQuantityWithoutUnit(totalVol), styles: { halign: 'right' } },
           '',
-          '',
-          '',
-          FormattingService.formatQuantity(totalVol),
-          '',
+          { content: FormattingService.formatCurrencyWithoutSymbol(totalAmt), styles: { halign: 'right' } },
         ]]
 
         columnStyles = {
+          4: { halign: 'right' },
           5: { halign: 'right' },
           6: { halign: 'right' },
+          7: { halign: 'right' },
         }
         break
       }
@@ -772,7 +788,7 @@ export class PdfService {
       let summaryY = finalY + 10
 
       // If summary block overflows pageHeight, add new page
-      const isCompactLedger = ['driver_inventory_ledger_detail', 'driver_sales_ledger_detail'].includes(reportType)
+      const isCompactLedger = ['driver_inventory_ledger_detail', 'driver_sales_ledger_detail', 'purchase_register', 'sales_register', 'transfer_register'].includes(reportType)
       const summaryBoxHeight = isCompactLedger ? 29 : 40
       if (summaryY + summaryBoxHeight + 5 > pageHeight - 15) {
         doc.addPage()
@@ -835,34 +851,60 @@ export class PdfService {
           { label: 'Total Cost', value: FormattingService.formatCurrencyWithoutSymbol(totalCost) },
           { label: 'Total Profit', value: FormattingService.formatCurrencyWithoutSymbol(totalProfit) },
         ]
+      } else if (reportType === 'purchase_register') {
+        const totalQty = data.reduce((acc, r) => acc + (r.quantity || 0), 0)
+        const totalCost = data.reduce((acc, r) => acc + Math.round((r.quantity || 0) * (r.unitCost || 0)), 0)
+        items = [
+          { label: 'Total Purchases', value: String(data.length) },
+          { label: 'Total Purchased Volume', value: `${FormattingService.formatQuantityWithoutUnit(totalQty)} Gal` },
+          { label: 'Total Purchase Cost', value: FormattingService.formatCurrencyWithoutSymbol(totalCost) },
+        ]
+      } else if (reportType === 'sales_register') {
+        const totalQty = data.reduce((acc, r) => acc + (r.quantity || 0), 0)
+        const totalRevenue = data.reduce((acc, r) => acc + Math.round((r.quantity || 0) * (r.sellingRate || 0)), 0)
+        const totalProfit = data.reduce((acc, r) => acc + (r.profitSnapshot || 0), 0)
+        items = [
+          { label: 'Sales Transactions', value: String(data.length) },
+          { label: 'Total Sold Volume', value: `${FormattingService.formatQuantityWithoutUnit(totalQty)} Gal` },
+          { label: 'Total Revenue', value: FormattingService.formatCurrencyWithoutSymbol(totalRevenue) },
+          { label: 'Total Gross Profit', value: FormattingService.formatCurrencyWithoutSymbol(totalProfit) },
+        ]
+      } else if (reportType === 'transfer_register') {
+        const totalQty = data.reduce((acc, r) => acc + (r.quantity || 0), 0)
+        const totalCost = data.reduce((acc, r) => acc + Math.round((r.quantity || 0) * (r.unitCost || 0)), 0)
+        items = [
+          { label: 'Transfer Transactions', value: String(data.length) },
+          { label: 'Total Volume Transferred', value: `${FormattingService.formatQuantityWithoutUnit(totalQty)} Gal` },
+          { label: 'Transferred Inventory Value', value: FormattingService.formatCurrencyWithoutSymbol(totalCost) },
+        ]
       }
 
       // Draw items inside the box
       if (isCompactLedger) {
         // Redesigned compact summary block for Driver Inventory Ledger
         let currentItemY = summaryY + 11
- 
+
         items.forEach((item, idx) => {
           const itemX = 20
           const itemY = currentItemY + idx * 4.5
           const totalWidth = 90 // 90mm width for the summary list
- 
+
           const label = item.label
           const valStr = item.value
- 
+
           // Draw label: Gray 600 to look semi-bold
           doc.setFont('helvetica', 'bold')
           doc.setFontSize(8)
           doc.setTextColor(75, 85, 99)
           const textWidth = doc.getTextWidth(label)
           doc.text(label, itemX, itemY)
- 
+
           // Draw values: Dark Gray 900 to look bold
           doc.setFont('helvetica', 'bold')
           doc.setFontSize(8)
           doc.setTextColor(17, 24, 39)
           const valWidth = doc.getTextWidth(valStr)
- 
+
           // draw dots
           doc.setTextColor(209, 213, 219)
           const dotStart = itemX + textWidth + 2
@@ -941,11 +983,11 @@ export class PdfService {
       case 'supplier_ledger_detail':
         return 'Supplier Volume Ledger Statement'
       case 'purchase_register':
-        return 'Purchases Ledger Register'
+        return 'Purchase Register Statement'
       case 'sales_register':
-        return 'Sales Ledger Register'
+        return 'Sales Register Statement'
       case 'transfer_register':
-        return 'Diesel Transfers Ledger Register'
+        return 'Transfer Register Statement'
       case 'inventory_valuation':
         return 'Diesel Stock Inventory Valuation'
       case 'profit_analysis':

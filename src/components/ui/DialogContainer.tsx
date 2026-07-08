@@ -43,7 +43,7 @@ export default function DialogContainer() {
   return (
     <div className="fixed inset-0 z-[9900] flex items-center justify-center p-4 select-none">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={handleCancel} />
+      <div className="absolute inset-0 bg-gray-900/40" onClick={handleCancel} />
 
       {/* Modal Dialog Card */}
       <div className="relative w-full max-w-sm bg-white rounded border shadow-2xl overflow-hidden flex flex-col">

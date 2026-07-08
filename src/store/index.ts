@@ -229,7 +229,7 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  currentOperator: 'Default Operator',
+  currentOperator: 'Haroon Wazir',
   setOperator: (operator) => set({ currentOperator: operator }),
   dbConnected: true,
   setDbConnected: (connected) => set({ dbConnected: connected }),
@@ -325,21 +325,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createDriver: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:create', data, operator)
     await get().fetchDrivers()
     return res
   },
 
   updateDriver: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:update', id, data, operator)
     await get().fetchDrivers()
     return res
   },
 
   deleteDriver: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:delete', id, operator)
     await get().fetchDrivers()
     return res
@@ -348,49 +348,49 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
   createCustomer: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:create', data, operator)
     await get().fetchCustomers()
     return res
   },
 
   updateCustomer: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:update', id, data, operator)
     await get().fetchCustomers()
     return res
   },
 
   deleteCustomer: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:delete', id, operator)
     await get().fetchCustomers()
     return res
   },
 
   createSupplier: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:create', data, operator)
     await get().fetchSuppliers()
     return res
   },
 
   updateSupplier: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:update', id, data, operator)
     await get().fetchSuppliers()
     return res
   },
 
   deleteSupplier: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:delete', id, operator)
     await get().fetchSuppliers()
     return res
   },
 
   createPurchase: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:createPurchase', data, operator)
     await get().fetchPurchases()
     await get().fetchInventorySnapshots()
@@ -398,7 +398,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updatePurchase: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:updatePurchase', id, data, operator)
     await get().fetchPurchases()
     await get().fetchInventorySnapshots()
@@ -406,7 +406,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deletePurchase: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
     await get().fetchPurchases()
     await get().fetchInventorySnapshots()
@@ -414,21 +414,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createTransfer: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:createTransfer', data, operator)
     await get().fetchInventorySnapshots()
     return res
   },
 
   updateTransfer: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:updateTransfer', id, data, operator)
     await get().fetchInventorySnapshots()
     return res
   },
 
   deleteTransfer: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
     await get().fetchInventorySnapshots()
     return res
@@ -439,7 +439,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createSale: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:createSale', data, operator)
     await get().fetchSales()
     await get().fetchInventorySnapshots()
@@ -447,7 +447,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateSale: async (id, data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:updateSale', id, data, operator)
     await get().fetchSales()
     await get().fetchInventorySnapshots()
@@ -455,7 +455,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteSale: async (id) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
     await get().fetchSales()
     await get().fetchInventorySnapshots()
@@ -463,7 +463,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   createAdjustment: async (data) => {
-    const operator = get().currentOperator || 'Default Operator'
+    const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('transactions:createAdjustment', data, operator)
     await get().fetchInventorySnapshots()
     return res

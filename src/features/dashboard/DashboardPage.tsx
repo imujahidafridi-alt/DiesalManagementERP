@@ -33,7 +33,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false)
   const [allTransactions, setAllTransactions] = useState<any[]>([])
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (isManual = false) => {
     setLoading(true)
     try {
       // Load all workspace resources in parallel
@@ -49,7 +49,9 @@ export default function DashboardPage() {
       // Fetch all transactions to process local statistics
       const txs = await window.api.invoke('transactions:list')
       setAllTransactions(txs || [])
-      addToast('Dashboard data refreshed successfully', 'success')
+      if (isManual) {
+        addToast('Dashboard data refreshed successfully', 'success')
+      }
     } catch (err: any) {
       addToast(err.message || 'Failed to refresh dashboard data', 'error')
     } finally {
@@ -58,10 +60,10 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    loadDashboardData()
+    loadDashboardData(false)
   }, [])
 
-  useShortcutEffect('refresh', loadDashboardData)
+  useShortcutEffect('refresh', () => loadDashboardData(true))
 
   // ----------------------------------------------------
   // Local Business Math Calculations
@@ -333,7 +335,7 @@ export default function DashboardPage() {
           <h1 className="text-sm font-bold uppercase tracking-wider text-gray-900">ERP Dashboard</h1>
           <p className="text-[11px] text-gray-500">Live operational overview of diesel inventory status, fleet allocations, and transaction logs.</p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadDashboardData} className="gap-2">
+        <Button variant="outline" size="sm" onClick={() => loadDashboardData(true)} className="gap-2">
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           <span>Refresh View <kbd className="text-[9px] text-gray-400 font-mono ml-1">Ctrl+R</kbd></span>
         </Button>

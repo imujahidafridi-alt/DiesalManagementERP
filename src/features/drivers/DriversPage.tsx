@@ -248,9 +248,8 @@ export default function DriversPage() {
       width: 90,
       render: (row) => (
         <span
-          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-            row.status === 'ACTIVE' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-gray-50 border border-gray-200 text-gray-700'
-          }`}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.status === 'ACTIVE' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-gray-50 border border-gray-200 text-gray-700'
+            }`}
         >
           {row.status || 'ACTIVE'}
         </span>
@@ -261,7 +260,7 @@ export default function DriversPage() {
   // Columns for modal statement lines
   const statementColumns = useMemo((): GridColumn<any>[] => [
     { key: 'transactionDate', header: 'Date', width: 90 },
-    { key: 'transactionNumber', header: 'Tx Number', width: 100 },
+    { key: 'transactionNumber', header: 'Invoice No', width: 100 },
     {
       key: 'transactionType',
       header: 'Type',
@@ -394,7 +393,7 @@ export default function DriversPage() {
       const qty = row.volume || row.quantity || 0
       const salePrice = row.sellingRate || 0
       const buyCost = row.averageCostSnapshot || row.unitCost || 0
-      
+
       totalVol += qty
       totalSales += qty * salePrice
       totalCost += qty * buyCost
@@ -639,21 +638,19 @@ export default function DriversPage() {
             {/* Tabs */}
             <div className="flex border-b print:hidden select-none">
               <button
-                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${
-                  statementTab === 'inventory'
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${statementTab === 'inventory'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                  }`}
                 onClick={() => setStatementTab('inventory')}
               >
                 Inventory Statement (Stock Movement)
               </button>
               <button
-                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${
-                  statementTab === 'sales'
+                className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${statementTab === 'sales'
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
+                  }`}
                 onClick={() => setStatementTab('sales')}
               >
                 Sales Statement (Profit Margin)
@@ -692,7 +689,7 @@ export default function DriversPage() {
                 Querying database ledger entries...
               </div>
             ) : statementReport ? (
-               <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
                 {/* Screen-only Driver Info Block */}
                 <div className="print:hidden flex flex-col space-y-0.5 border-b pb-2 select-none text-xs text-gray-700">
                   <div className="flex items-center gap-1.5">

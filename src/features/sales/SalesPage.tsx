@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import {
@@ -35,7 +36,7 @@ interface SaleFormData {
 }
 
 const emptyForm: SaleFormData = {
-  date: new Date().toISOString().slice(0, 10),
+  date: new Date().toLocaleDateString('en-CA'),
   customerId: '',
   driverId: '',
   quantity: '',
@@ -170,8 +171,8 @@ export default function SalesPage() {
 
   // Dashboard Summary calculations
   const summaries = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
-    const currentMonthStr = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const todayStr = new Date().toLocaleDateString('en-CA')
+    const currentMonthStr = new Date().toLocaleDateString('en-CA').slice(0, 7) // YYYY-MM
 
     let todayVol = 0
     let monthVol = 0
@@ -291,7 +292,7 @@ export default function SalesPage() {
   const handleNew = () => {
     setFormData({
       ...emptyForm,
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date().toLocaleDateString('en-CA'),
     })
     setFormErrors({})
     setEditId(null)
@@ -442,7 +443,7 @@ export default function SalesPage() {
   // Columns Configuration
   const columns = useMemo((): GridColumn<any>[] => {
     return [
-      { key: 'transactionNumber', header: 'Tx Number', width: 95 },
+      { key: 'transactionNumber', header: 'Invoice No', width: 95 },
       { key: 'transactionDate', header: 'Date', width: 90 },
       {
         key: 'customer',
@@ -800,7 +801,7 @@ export default function SalesPage() {
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Sahara Diesels v1.0.0</span>
+          <span>Sahara Diesels {appConfig.version}</span>
         </div>
       </div>
     </div>

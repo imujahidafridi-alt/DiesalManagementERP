@@ -106,11 +106,11 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
           onKeyDown={handleKeyDown}
           onClick={() => !disabled && setIsOpen(!isOpen)}
           className={clsx(
-            'relative flex h-8 w-full items-center justify-between rounded border bg-white pl-2.5 pr-8 py-1 text-xs transition-colors cursor-pointer focus-ring hover:border-gray-400 disabled:cursor-not-allowed disabled:opacity-50 select-none text-gray-800 focus:outline-none',
-            disabled && 'cursor-not-allowed opacity-50 bg-gray-50 hover:border-gray-300',
+            'relative flex h-9 w-full items-center justify-between rounded-lg border bg-white pl-3.5 pr-8 py-1.5 text-xs transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 hover:border-gray-300 disabled:cursor-not-allowed disabled:opacity-50 select-none text-gray-800 shadow-sm',
+            disabled && 'cursor-not-allowed opacity-50 bg-gray-50 hover:border-gray-250',
             error 
-              ? 'border-red-500 focus:ring-red-500 focus:border-red-500' 
-              : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500',
+              ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' 
+              : 'border-gray-250 focus:ring-blue-500/20 focus:border-blue-500',
             className
           )}
           {...props}
@@ -126,7 +126,7 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
 
           {/* Custom Floating Options list */}
           {isOpen && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-60 overflow-auto py-1">
+            <div className="absolute left-0 right-0 top-full z-50 mt-1.5 bg-white border border-gray-200/60 rounded-xl shadow-2xl max-h-60 overflow-auto py-1 animate-in fade-in slide-in-from-top-1 duration-150">
               {options.map((opt, idx) => {
                 const isSelected = String(value) === String(opt.value)
                 const isActive = idx === activeIndex
@@ -139,9 +139,9 @@ const Select = React.forwardRef<HTMLDivElement, SelectProps>(
                       handleSelect(opt.value)
                     }}
                     className={clsx(
-                      'px-3 py-1.5 text-xs cursor-pointer transition-colors truncate',
-                      isSelected && 'font-bold bg-blue-50/50 text-blue-600',
-                      isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                      'px-3.5 py-2 text-xs cursor-pointer transition-colors truncate',
+                      isSelected && 'font-bold bg-blue-50/70 text-blue-600',
+                      isActive ? 'bg-blue-600 text-white font-semibold' : 'text-gray-700 hover:bg-gray-50'
                     )}
                   >
                     {opt.label}

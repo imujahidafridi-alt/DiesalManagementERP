@@ -63,7 +63,7 @@ function TruckIcon(props: any) {
 export default function ReportsPage() {
   const { currencySymbol: symbol, quantityAbbreviation: unit } = useBusinessSettings()
   const { addToast } = useUiStore()
-  
+
   // Zustand Store integrations
   const {
     fetchDrivers,
@@ -99,15 +99,16 @@ export default function ReportsPage() {
   const [refNum, setRefNum] = useState<string>('')
   const [operator, setOperator] = useState<string>('')
   const [notes, setNotes] = useState<string>('')
-  
+
   // Numeric ranges
   const [minQty, setMinQty] = useState<string>('')
   const [maxQty, setMaxQty] = useState<string>('')
   const [minRate, setMinRate] = useState<string>('')
   const [maxRate, setMaxRate] = useState<string>('')
-  
+
   // Column visibility customizations
   const [colPrefs, setColPrefs] = useState<Record<string, boolean>>({})
+  const [hideZeroStock, setHideZeroStock] = useState(false)
   const [showColMenu, setShowColMenu] = useState(false)
 
   // Saved configs list
@@ -267,7 +268,7 @@ export default function ReportsPage() {
                 startDate: startDate || undefined,
                 endDate: endDate || undefined,
               })
-              
+
               // Calculate counts of transfers/sales
               let received = 0
               let transferredIn = 0
@@ -331,7 +332,7 @@ export default function ReportsPage() {
           // Fetch purchases grouped by supplier
           const allTxs = await getTransactionHistory({ ...compiledFilters, transactionType: 'PURCHASE' })
           const supGroup: Record<string, { companyName: string; count: number; volume: number; cost: number; lastDate: string }> = {}
-          
+
           allTxs.forEach((tx) => {
             const supObj = suppliers.find((s) => s.id === tx.sourceId)
             const name = supObj ? supObj.companyName : 'Unknown Supplier'
@@ -398,9 +399,9 @@ export default function ReportsPage() {
       case 'inventory_valuation':
         cols = [
           { key: 'locationName', header: 'Driver Name', width: 220 },
-          { key: 'currentStock', header: `Current Stock (${unit})`, width: 125, type: 'number' },
-          { key: 'weightedAverageCost', header: `Carrying WAC (${symbol}/${unit})`, width: 125, type: 'currency' },
-          { key: 'totalAssetValue', header: 'Asset Value', width: 140, type: 'currency' },
+          { key: 'currentStock', header: `Current Stock (${unit})`, width: 125, align: 'right', render: (row) => FormattingService.formatQuantity(row.currentStock || 0) },
+          { key: 'weightedAverageCost', header: `Carrying WAC (${symbol}/${unit})`, width: 125, align: 'right', render: (row) => row.weightedAverageCost > 0 ? FormattingService.formatRate(row.weightedAverageCost) : '—' },
+          { key: 'totalAssetValue', header: 'Asset Value', width: 140, align: 'right', render: (row) => FormattingService.formatCurrency(row.totalAssetValue || 0) },
         ]
         break
       case 'daily_summary':
@@ -419,77 +420,114 @@ export default function ReportsPage() {
         break
       case 'purchase_register':
         cols = [
-          { key: 'transactionNumber', header: 'Tx No', width: 100 },
-          { key: 'transactionDate', header: 'Date', width: 95 },
+          { key: 'transactionNumber', header: 'Invoice No', width: 100, align: 'left' },
+          { key: 'transactionDate', header: 'Date', width: 95, align: 'left' },
           {
             key: 'sourceId',
-            header: 'Supplier Refinery',
+            header: 'Supplier / Refinery',
             width: 180,
+            align: 'left',
             render: (row) => suppliers.find((s) => s.id === row.sourceId)?.companyName || 'Refinery Bulk',
           },
-          { key: 'quantity', header: `Volume (${unit})`, width: 100, type: 'number' },
-          { key: 'unitCost', header: 'Unit Cost', width: 90, type: 'currency' },
+          { key: 'quantity', header: `Volume (${unit})`, width: 110, align: 'right', render: (row) => FormattingService.formatQuantity(row.quantity || 0) },
+          { key: 'unitCost', header: 'Unit Cost', width: 100, align: 'right', render: (row) => FormattingService.formatCurrency(row.unitCost || 0) },
           {
             key: 'total',
             header: 'Total Cost',
-            width: 110,
-            type: 'currency',
+            width: 120,
+            align: 'right',
             render: (row) => FormattingService.formatCurrency(Math.round(row.quantity * row.unitCost)),
           },
-          { key: 'referenceNumber', header: 'Vehicle Number', width: 110, align: 'right' },
+          { key: 'referenceNumber', header: 'Vehicle Number', width: 110, align: 'right', render: (row) => row.referenceNumber || '-' },
         ]
         break
       case 'sales_register':
         cols = [
-          { key: 'transactionNumber', header: 'Invoice No', width: 100 },
-          { key: 'transactionDate', header: 'Date', width: 95 },
+          { key: 'transactionNumber', header: 'Invoice No', width: 100, align: 'left' },
+          {
+            key: 'transactionDate',
+            header: 'Date',
+            width: 105,
+            align: 'left',
+            render: (row) => {
+              if (!row.transactionDate) return ''
+              const d = new Date(row.transactionDate)
+              const day = String(d.getDate()).padStart(2, '0')
+              const month = String(d.getMonth() + 1).padStart(2, '0')
+              const year = d.getFullYear()
+              return `${day}/${month}/${year}`
+            }
+          },
           {
             key: 'destinationId',
             header: 'Customer Co.',
-            width: 170,
+            width: 220,
+            align: 'left',
             render: (row) => customers.find((c) => c.id === row.destinationId)?.companyName || 'Client',
           },
-          { key: 'quantity', header: `Volume (${unit})`, width: 100, type: 'number' },
-          { key: 'sellingRate', header: 'Sale Rate', width: 90, type: 'currency' },
-          { key: 'averageCostSnapshot', header: 'WAC Cost', width: 95, type: 'currency' },
+          { key: 'quantity', header: `Volume (${unit})`, width: 100, align: 'right', render: (row) => FormattingService.formatQuantityWithoutUnit(row.quantity || 0) },
+          { key: 'sellingRate', header: 'Sale Rate', width: 95, align: 'right', render: (row) => FormattingService.formatCurrencyWithoutSymbol(row.sellingRate || 0) },
+          { key: 'averageCostSnapshot', header: 'Unit Cost', width: 95, align: 'right', render: (row) => FormattingService.formatCurrencyWithoutSymbol(row.averageCostSnapshot || row.unitCost || 0) },
           {
             key: 'revenue',
             header: 'Revenue',
-            width: 105,
-            type: 'currency',
-            render: (row) => FormattingService.formatCurrency(Math.round(row.quantity * row.sellingRate)),
+            width: 130,
+            align: 'right',
+            render: (row) => FormattingService.formatCurrencyWithoutSymbol(Math.round(row.quantity * row.sellingRate)),
           },
-          { key: 'profitSnapshot', header: 'Gross Profit', width: 105, type: 'currency' },
-          { key: 'vehicleNumber', header: 'Vehicle Number', width: 100 },
+          { key: 'profitSnapshot', header: 'Gross Profit', width: 110, align: 'right', render: (row) => FormattingService.formatCurrencyWithoutSymbol(row.profitSnapshot || 0) },
+          { key: 'vehicleNumber', header: 'Vehicle Number', width: 130, align: 'right', render: (row) => row.vehicleNumber || row.referenceNumber || '' },
         ]
         break
       case 'transfer_register':
         cols = [
-          { key: 'transactionNumber', header: 'Gate Pass No', width: 105 },
-          { key: 'transactionDate', header: 'Date', width: 95 },
+          { key: 'transactionNumber', header: 'Invoice No', width: 115, align: 'left' },
+          {
+            key: 'transactionDate',
+            header: 'Date',
+            width: 105,
+            align: 'left',
+            render: (row) => {
+              if (!row.transactionDate) return ''
+              const d = new Date(row.transactionDate)
+              const day = String(d.getDate()).padStart(2, '0')
+              const month = String(d.getMonth() + 1).padStart(2, '0')
+              const year = d.getFullYear()
+              return `${day}/${month}/${year}`
+            }
+          },
           {
             key: 'sourceId',
-            header: 'Source Location',
-            width: 160,
+            header: 'From',
+            width: 170,
+            align: 'left',
             render: (row) => {
-               const d = drivers.find((drv) => drv.id === row.sourceId)
-               const s = suppliers.find((sup) => sup.id === row.sourceId)
-               return d ? d.name : s ? s.companyName : row.sourceId
+              const d = drivers.find((drv) => drv.id === row.sourceId)
+              const s = suppliers.find((sup) => sup.id === row.sourceId)
+              return d ? d.name : s ? s.companyName : row.sourceId
             },
           },
           {
             key: 'destinationId',
-            header: 'Destination',
-            width: 160,
+            header: 'To',
+            width: 170,
+            align: 'left',
             render: (row) => {
-               const d = drivers.find((drv) => drv.id === row.destinationId)
-               const c = customers.find((cust) => cust.id === row.destinationId)
-               return d ? d.name : c ? c.companyName : row.destinationId
+              const d = drivers.find((drv) => drv.id === row.destinationId)
+              const c = customers.find((cust) => cust.id === row.destinationId)
+              return d ? d.name : c ? c.companyName : row.destinationId
             },
           },
-          { key: 'referenceNumber', header: 'Vehicle Number', width: 110 },
-          { key: 'quantity', header: `Volume (${unit})`, width: 100, type: 'number' },
-          { key: 'unitCost', header: 'WAC Carrier', width: 100, type: 'currency' },
+          { key: 'referenceNumber', header: 'Vehicle Number', width: 110, align: 'right', render: (row) => row.referenceNumber || '—' },
+          { key: 'quantity', header: `Volume (${unit})`, width: 110, align: 'right', render: (row) => FormattingService.formatQuantityWithoutUnit(row.quantity || 0) },
+          { key: 'unitCost', header: 'WAC Rate', width: 100, align: 'right', render: (row) => FormattingService.formatCurrencyWithoutSymbol(row.unitCost || 0) },
+          {
+            key: 'totalValue',
+            header: 'Total Value',
+            width: 120,
+            align: 'right',
+            render: (row) => FormattingService.formatCurrencyWithoutSymbol(Math.round(row.quantity * row.unitCost)),
+          },
         ]
         break
       case 'supplier_ledger':
@@ -525,27 +563,27 @@ export default function ReportsPage() {
         break
       case 'stock_movement':
         cols = [
-          { key: 'transactionNumber', header: 'Tx No', width: 95 },
+          { key: 'transactionNumber', header: 'Invoice No', width: 95 },
           { key: 'transactionDate', header: 'Date', width: 95 },
-          { key: 'transactionType', header: 'Tx Type', width: 100 },
+          { key: 'transactionType', header: 'Type', width: 100 },
           {
             key: 'sourceId',
-            header: 'Source Origin',
+            header: 'From',
             width: 140,
             render: (row) => {
-               const d = drivers.find((drv) => drv.id === row.sourceId)
-               const s = suppliers.find((sup) => sup.id === row.sourceId)
-               return d ? d.name : s ? s.companyName : row.sourceId
+              const d = drivers.find((drv) => drv.id === row.sourceId)
+              const s = suppliers.find((sup) => sup.id === row.sourceId)
+              return d ? d.name : s ? s.companyName : row.sourceId
             },
           },
           {
             key: 'destinationId',
-            header: 'Destination Location',
+            header: 'To',
             width: 140,
             render: (row) => {
-               const d = drivers.find((drv) => drv.id === row.destinationId)
-               const cust = customers.find((c) => c.id === row.destinationId)
-               return d ? d.name : cust ? cust.companyName : row.destinationId
+              const d = drivers.find((drv) => drv.id === row.destinationId)
+              const cust = customers.find((c) => c.id === row.destinationId)
+              return d ? d.name : cust ? cust.companyName : row.destinationId
             },
           },
           { key: 'quantity', header: `Volume (${unit})`, width: 95, type: 'number' },
@@ -563,9 +601,8 @@ export default function ReportsPage() {
             header: 'Severity',
             width: 90,
             render: (row) => (
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                row.severity === 'HIGH' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-              }`}>
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.severity === 'HIGH' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                }`}>
                 {row.severity}
               </span>
             ),
@@ -585,7 +622,7 @@ export default function ReportsPage() {
         break
       default:
         cols = [
-          { key: 'transactionNumber', header: 'Tx No', width: 100 },
+          { key: 'transactionNumber', header: 'Invoice No', width: 100 },
           { key: 'transactionDate', header: 'Date', width: 100 },
           { key: 'transactionType', header: 'Type', width: 100 },
           { key: 'quantity', header: `Quantity (${unit})`, width: 110, type: 'number' },
@@ -601,6 +638,7 @@ export default function ReportsPage() {
     const prefs: Record<string, boolean> = {}
     // Reset columns checklist
     setColPrefs(prefs)
+    setHideZeroStock(false)
   }, [selectedCat])
 
   // ----------------------------------------------------
@@ -623,7 +661,7 @@ export default function ReportsPage() {
       if (row.transactionType === 'SALE') {
         amount += Math.round(row.quantity * row.sellingRate)
         profit += row.profitSnapshot || 0
-      } else if (row.transactionType === 'PURCHASE') {
+      } else if (row.transactionType === 'PURCHASE' || row.transactionType === 'TRANSFER') {
         amount += Math.round(row.quantity * row.unitCost)
       } else if (row.totalAmount !== undefined) {
         amount += row.totalAmount
@@ -645,6 +683,70 @@ export default function ReportsPage() {
       count,
     }
   }, [reportData])
+
+  const displayedReportData = useMemo(() => {
+    if (selectedCat === 'inventory_valuation' && hideZeroStock) {
+      return reportData.filter((r) => (r.currentStock || 0) !== 0)
+    }
+    return reportData
+  }, [reportData, selectedCat, hideZeroStock])
+
+  const footerRow = useMemo(() => {
+    if (selectedCat === 'inventory_valuation') {
+      return (
+        <tr className="border-t border-slate-200/80 font-bold bg-slate-50 text-slate-800 text-[11px]">
+          <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5">—</td>
+          <td className="px-3 py-1.5 text-left sticky left-0 bg-slate-50">Total</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatQuantity(summaryAggregates.volume)}</td>
+          <td className="px-3 py-1.5 text-right">—</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatCurrency(summaryAggregates.amount)}</td>
+        </tr>
+      )
+    } else if (selectedCat === 'purchase_register') {
+      return (
+        <tr className="border-t border-slate-200/80 font-bold bg-slate-50 text-slate-800 text-[11px]">
+          <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5">—</td>
+          <td className="px-3 py-1.5 text-left sticky left-0 bg-slate-50">—</td>
+          <td className="px-3 py-1.5 text-left">—</td>
+          <td className="px-3 py-1.5 text-left">Total / Summary</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatQuantity(summaryAggregates.volume)}</td>
+          <td className="px-3 py-1.5 text-right">—</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatCurrency(summaryAggregates.amount)}</td>
+          <td className="px-3 py-1.5 text-right">—</td>
+        </tr>
+      )
+    } else if (selectedCat === 'sales_register') {
+      return (
+        <tr className="border-t border-slate-200/80 font-bold bg-slate-50 text-slate-800 text-[11px]">
+          <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5"></td>
+          <td className="px-3 py-1.5 text-left sticky left-0 bg-slate-50"></td>
+          <td className="px-3 py-1.5 text-left"></td>
+          <td className="px-3 py-1.5 text-left">Total / Summary</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatQuantityWithoutUnit(summaryAggregates.volume)}</td>
+          <td className="px-3 py-1.5 text-right"></td>
+          <td className="px-3 py-1.5 text-right"></td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatCurrencyWithoutSymbol(summaryAggregates.amount)}</td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatCurrencyWithoutSymbol(summaryAggregates.profit)}</td>
+          <td className="px-3 py-1.5 text-right"></td>
+        </tr>
+      )
+    } else if (selectedCat === 'transfer_register') {
+      return (
+        <tr className="border-t border-slate-200/80 font-bold bg-slate-50 text-slate-800 text-[11px]">
+          <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5"></td>
+          <td className="px-3 py-1.5 text-left sticky left-0 bg-slate-50"></td>
+          <td className="px-3 py-1.5 text-left"></td>
+          <td className="px-3 py-1.5 text-left"></td>
+          <td className="px-3 py-1.5 text-left">Total / Summary</td>
+          <td className="px-3 py-1.5 text-right"></td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatQuantityWithoutUnit(summaryAggregates.volume)}</td>
+          <td className="px-3 py-1.5 text-right"></td>
+          <td className="px-3 py-1.5 text-right">{FormattingService.formatCurrencyWithoutSymbol(summaryAggregates.amount)}</td>
+        </tr>
+      )
+    }
+    return undefined
+  }, [selectedCat, summaryAggregates])
 
   // ----------------------------------------------------
   // PRINT & EXPORT SERVICE HANDLERS
@@ -823,9 +925,8 @@ export default function ReportsPage() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCat(cat.id)}
-                className={`w-full text-left px-3 py-2 rounded text-xs transition-colors flex items-center justify-between group cursor-pointer ${
-                  isSelected ? 'bg-blue-600 text-white font-bold' : 'text-gray-600 hover:bg-gray-50'
-                }`}
+                className={`w-full text-left px-3 py-2 rounded text-xs transition-colors flex items-center justify-between group cursor-pointer ${isSelected ? 'bg-blue-600 text-white font-bold' : 'text-gray-600 hover:bg-gray-50'
+                  }`}
                 title={cat.description}
               >
                 <div className="flex items-center gap-2.5 truncate">
@@ -978,29 +1079,33 @@ export default function ReportsPage() {
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-[9px] font-bold text-gray-400 uppercase">Customer Co.</label>
-            <Select
-              options={[
-                { value: '', label: 'All Customers' },
-                ...customers.map((c) => ({ value: c.id, label: c.companyName })),
-              ]}
-              value={customerId}
-              onChange={(e: any) => setCustomerId(e.target.value)}
-            />
-          </div>
+          {selectedCat !== 'transfer_register' && (
+            <div className="space-y-1">
+              <label className="block text-[9px] font-bold text-gray-400 uppercase">Customer Co.</label>
+              <Select
+                options={[
+                  { value: '', label: 'All Customers' },
+                  ...customers.map((c) => ({ value: c.id, label: c.companyName })),
+                ]}
+                value={customerId}
+                onChange={(e: any) => setCustomerId(e.target.value)}
+              />
+            </div>
+          )}
 
-          <div className="space-y-1">
-            <label className="block text-[9px] font-bold text-gray-400 uppercase">Refinery Supplier</label>
-            <Select
-              options={[
-                { value: '', label: 'All Suppliers' },
-                ...suppliers.map((s) => ({ value: s.id, label: s.companyName })),
-              ]}
-              value={supplierId}
-              onChange={(e: any) => setSupplierId(e.target.value)}
-            />
-          </div>
+          {selectedCat !== 'transfer_register' && (
+            <div className="space-y-1">
+              <label className="block text-[9px] font-bold text-gray-400 uppercase">Refinery Supplier</label>
+              <Select
+                options={[
+                  { value: '', label: 'All Suppliers' },
+                  ...suppliers.map((s) => ({ value: s.id, label: s.companyName })),
+                ]}
+                value={supplierId}
+                onChange={(e: any) => setSupplierId(e.target.value)}
+              />
+            </div>
+          )}
 
           <div className="space-y-1">
             <label className="block text-[9px] font-bold text-gray-400 uppercase">Reference text</label>
@@ -1094,12 +1199,13 @@ export default function ReportsPage() {
                 setMaxQty('')
                 setMinRate('')
                 setMaxRate('')
+                setHideZeroStock(false)
               }}
               className="w-full text-center"
             >
               Clear Filters
             </Button>
-            
+
             <Button variant="primary" size="sm" onClick={() => runReport(true)} className="w-full gap-1.5">
               <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
               <span>Apply</span>
@@ -1137,6 +1243,70 @@ export default function ReportsPage() {
                   </>
                 )
               })()}
+            </>
+          ) : selectedCat === 'inventory_valuation' ? (
+            <>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Drivers</span>
+                <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Inventory Volume</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Inventory Value</span>
+                <p className="text-sm font-black text-blue-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
+              </div>
+            </>
+          ) : selectedCat === 'purchase_register' ? (
+            <>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Purchases</span>
+                <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Purchased Volume</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Purchase Cost</span>
+                <p className="text-sm font-black text-blue-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
+              </div>
+            </>
+          ) : selectedCat === 'sales_register' ? (
+            <>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Sales Transactions</span>
+                <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Sold Volume</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Revenue</span>
+                <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans font-sans font-sans">Total Gross Profit</span>
+                <p className="text-sm font-black text-green-700">{FormattingService.formatCurrency(summaryAggregates.profit)}</p>
+              </div>
+            </>
+          ) : selectedCat === 'transfer_register' ? (
+            <>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Transfer Transactions</span>
+                <p className="text-sm font-black text-gray-800 font-sans">{summaryAggregates.count}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Total Volume Transferred</span>
+                <p className="text-sm font-black text-gray-800">{FormattingService.formatQuantity(summaryAggregates.volume)}</p>
+              </div>
+              <div className="bg-white border rounded p-3 select-none print:border-0 print:p-0 h-16 flex flex-col justify-between">
+                <span className="text-[9px] uppercase font-bold text-gray-400 font-sans">Transferred Inventory Value</span>
+                <p className="text-sm font-black text-blue-700">{FormattingService.formatCurrency(summaryAggregates.amount)}</p>
+              </div>
             </>
           ) : (
             <>
@@ -1190,20 +1360,35 @@ export default function ReportsPage() {
         </div>
 
         {/* 4. Main DataGrid Viewer */}
-        <div className="flex-1 overflow-auto p-4 bg-gray-50/50 print:bg-white print:p-0">
+        <div className="flex-1 overflow-auto p-4 bg-gray-50/50 print:bg-white print:p-0 flex flex-col space-y-3">
+          {selectedCat === 'inventory_valuation' && (
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 bg-white border p-2.5 rounded shadow-subtle select-none no-print self-start">
+              <input
+                id="hideZeroStock"
+                type="checkbox"
+                checked={hideZeroStock}
+                onChange={(e) => setHideZeroStock(e.target.checked)}
+                className="rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+              />
+              <label htmlFor="hideZeroStock" className="cursor-pointer select-none">
+                Hide Zero Stock Drivers
+              </label>
+            </div>
+          )}
           {loading ? (
             <div className="flex flex-col items-center justify-center h-48 text-gray-400 text-xs select-none">
               <RefreshCw className="animate-spin mb-2" size={16} />
               Recalculating ledger rows...
             </div>
-          ) : reportData.length === 0 ? (
+          ) : displayedReportData.length === 0 ? (
             <div className="flex items-center justify-center h-48 text-xs text-gray-400 select-none border border-dashed rounded bg-white">
               No matching records found. Refine your filters or load a different category.
             </div>
           ) : (
             <DataGrid
               columns={reportColumns}
-              data={reportData}
+              data={displayedReportData}
+              footerRow={footerRow}
             />
           )}
         </div>

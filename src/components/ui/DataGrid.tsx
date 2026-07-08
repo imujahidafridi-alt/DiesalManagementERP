@@ -20,6 +20,7 @@ interface DataGridProps<T> {
   onCellEditSubmit?: (rowIndex: number, key: string, value: any) => void
   onSelectionChange?: (selectedRows: T[]) => void
   stickyFirstColumn?: boolean
+  footerRow?: React.ReactNode
 }
 
 export default function DataGrid<T extends Record<string, any>>({
@@ -28,6 +29,7 @@ export default function DataGrid<T extends Record<string, any>>({
   onCellEditSubmit,
   onSelectionChange,
   stickyFirstColumn = true,
+  footerRow,
 }: DataGridProps<T>) {
   // --- 1. States ---
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colIndex: number } | null>(null)
@@ -275,14 +277,14 @@ export default function DataGrid<T extends Record<string, any>>({
       ref={gridRef}
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      className="w-full border rounded bg-white shadow-subtle overflow-auto max-h-[500px] md:max-h-full focus:outline-none focus:ring-1 focus:ring-blue-500/30"
+      className="w-full border border-slate-200 rounded-none bg-white shadow-subtle overflow-auto max-h-[500px] md:max-h-full focus:outline-none focus:ring-2 focus:ring-blue-500/10"
     >
       <table className="w-full border-collapse table-fixed text-xs text-left">
         {/* Table Headers */}
-        <thead className="sticky top-0 bg-gray-50 border-b z-20 select-none">
+        <thead className="sticky top-0 z-20 select-none border-b border-slate-950 bg-gradient-to-b from-slate-800 to-slate-900 text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
           <tr>
             {/* Index Checklist column */}
-            <th className="w-10 border-r text-center px-1 text-gray-400 font-mono font-medium">
+            <th className="w-10 text-center px-1 text-slate-300 font-mono text-[9px] py-2 bg-gradient-to-b from-slate-800 to-slate-900">
               #
             </th>
 
@@ -295,9 +297,9 @@ export default function DataGrid<T extends Record<string, any>>({
                   key={col.key}
                   style={{ width: colWidths[col.key] || 120 }}
                   className={clsx(
-                    'px-3 py-2 border-r font-semibold text-gray-700 relative align-middle group truncate',
+                    'px-3 py-2 font-bold text-white relative align-middle group truncate bg-gradient-to-b from-slate-800 to-slate-900',
                     isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
-                    stickyFirstColumn && cIdx === 0 && 'sticky left-0 bg-gray-50 z-10'
+                    stickyFirstColumn && cIdx === 0 && 'sticky left-0 z-10 bg-gradient-to-b from-slate-800 to-slate-900'
                   )}
                 >
                   <div className={clsx(
@@ -305,17 +307,17 @@ export default function DataGrid<T extends Record<string, any>>({
                     isRightAlign ? 'justify-end' : isCenterAlign ? 'justify-center' : 'justify-between'
                   )}>
                     <span
-                      className={clsx(col.sortable && 'cursor-pointer select-none hover:text-gray-900')}
+                      className={clsx(col.sortable && 'cursor-pointer select-none hover:text-white/80')}
                       onClick={() => col.sortable && toggleSort(col.key)}
                     >
                       {col.header}
                     </span>
                     {col.sortable && (
-                      <span className="text-gray-400">
+                      <span className="text-white/60">
                         {isSorted ? (
-                          sortDir === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />
+                          sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
                         ) : (
-                          <ArrowUpDown size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <ArrowUpDown size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         )}
                       </span>
                     )}
@@ -327,7 +329,7 @@ export default function DataGrid<T extends Record<string, any>>({
                       e.preventDefault()
                       handleResizeStart(col.key, e.clientX, colWidths[col.key] || 120)
                     }}
-                    className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-500/50 transition-colors"
+                    className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 transition-colors"
                   />
                 </th>
               )
@@ -356,12 +358,12 @@ export default function DataGrid<T extends Record<string, any>>({
                     setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: rIdx })
                   }}
                   className={clsx(
-                    'border-b transition-colors hover:bg-gray-50/50',
-                    isRowSelected ? 'bg-blue-50/40' : 'even:bg-gray-50/20'
+                    'border-b border-slate-100 transition-colors hover:bg-slate-50/60',
+                    isRowSelected ? 'bg-blue-50/20 font-medium text-slate-900' : 'even:bg-slate-50/10'
                   )}
                 >
                   {/* Row index indicator */}
-                  <td className="border-r px-1 text-center font-mono text-[10px] text-gray-400">
+                  <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5 bg-slate-50/30">
                     {rIdx + 1}
                   </td>
 
@@ -377,9 +379,13 @@ export default function DataGrid<T extends Record<string, any>>({
                         onClick={() => setFocusedCell({ rowIndex: rIdx, colIndex: cIdx })}
                         onDoubleClick={() => startEditing(rIdx, cIdx)}
                         className={clsx(
-                          'px-3 py-1.5 border-r truncate font-medium align-middle relative focus:outline-none',
+                          'px-3 py-1.5 truncate font-medium align-middle relative focus:outline-none text-[11px] text-slate-650',
                           isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
-                          stickyFirstColumn && cIdx === 0 && (isRowSelected ? 'sticky left-0 bg-blue-50 z-10' : 'sticky left-0 bg-white z-10'),
+                          stickyFirstColumn && cIdx === 0 && (
+                            isRowSelected 
+                              ? 'sticky left-0 bg-blue-50/30 z-10' 
+                              : 'sticky left-0 bg-white z-10'
+                          ),
                           {
                             'ring-1 ring-blue-500 ring-inset': isFocused && !isEditing,
                           }
@@ -411,6 +417,11 @@ export default function DataGrid<T extends Record<string, any>>({
             })
           )}
         </tbody>
+        {footerRow && (
+          <tfoot className="sticky bottom-0 bg-gray-50 border-t z-10 font-bold select-none">
+            {footerRow}
+          </tfoot>
+        )}
       </table>
 
       {/* Grid Context Menu */}

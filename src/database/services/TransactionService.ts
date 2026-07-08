@@ -20,7 +20,7 @@ import {
   CustomerNotFoundError,
   SupplierNotFoundError,
 } from '../errors'
-import { eq, and, or, isNull, desc } from 'drizzle-orm'
+import { eq, and, or, isNull, desc, sql } from 'drizzle-orm'
 import crypto from 'crypto'
 
 const txRepo = new TransactionRepository()
@@ -680,6 +680,36 @@ export class TransactionService {
     if (!prior) throw new Error(`Transaction not found: ${id}`)
 
     return runInTransaction(async () => {
+      // 1. Check if this is the latest transaction of its type
+      const laterSameType = await db
+        .select()
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.transactionType, prior.transactionType),
+            isNull(transactions.deletedAt),
+            or(
+              sql`${transactions.transactionDate} > ${prior.transactionDate}`,
+              and(
+                eq(transactions.transactionDate, prior.transactionDate),
+                sql`${transactions.createdAt} > ${prior.createdAt}`
+              )
+            )
+          )
+        )
+        .limit(1)
+
+      if (laterSameType.length > 0) {
+        throw new ValidationError('This transaction affects later inventory movements. Edit the transaction instead.')
+      }
+
+      // 2. Simulate deletion to verify stock remains non-negative at all subsequent points
+      try {
+        await this.simulateLedger({ [id]: null })
+      } catch (err) {
+        throw new ValidationError('This transaction affects later inventory movements. Edit the transaction instead.')
+      }
+
       const now = new Date().toISOString()
       
       // Update deletedAt
@@ -721,6 +751,13 @@ export class TransactionService {
     if (!prior || !prior.deletedAt) throw new Error(`Transaction is not soft-deleted or does not exist: ${id}`)
 
     return runInTransaction(async () => {
+      // Simulate restore before saving
+      try {
+        await this.simulateLedger({ [id]: { deletedAt: null } })
+      } catch (err: any) {
+        throw new ValidationError(err.message || 'Invalid restore: resulting stock would fall below zero')
+      }
+
       const now = new Date().toISOString()
 
       // Reset deletedAt to null
@@ -863,6 +900,134 @@ export class TransactionService {
 
       return ledgerRecord
     })
+  }
+
+  /**
+   * Simulates running the entire chronological ledger to check if any edits or deletions
+   * would result in negative stock levels at any point in the timeline.
+   * overrides contains { [txId]: null (for deletion) } or { [txId]: Partial<Transaction> (for edit/restore) }
+   */
+  static async simulateLedger(
+    overrides: Record<string, any | null>
+  ): Promise<void> {
+    const activeTxs = await db
+      .select()
+      .from(transactions)
+      .where(isNull(transactions.deletedAt))
+
+    const simulatedTxs: any[] = [...activeTxs]
+
+    // Handle soft-deleted transactions being simulated for a restore/edit
+    for (const key of Object.keys(overrides)) {
+      const overrideVal = overrides[key]
+      const inActive = activeTxs.some((t) => t.id === key)
+      
+      // If we are simulating restoring/modifying a soft-deleted transaction (override is not null)
+      if (overrideVal !== null && !inActive) {
+        const deletedTx = await db
+          .select()
+          .from(transactions)
+          .where(eq(transactions.id, key))
+          .limit(1)
+        if (deletedTx[0]) {
+          simulatedTxs.push({ ...deletedTx[0], ...overrideVal })
+        }
+      }
+    }
+
+    // Filter out simulated deletions & apply edits
+    const finalSimulatedTxs: any[] = []
+    for (const tx of simulatedTxs) {
+      if (tx.id in overrides) {
+        const override = overrides[tx.id]
+        if (override === null) {
+          // Deletion simulation - skip this transaction
+          continue
+        } else {
+          // Edit simulation - merge override fields
+          finalSimulatedTxs.push({ ...tx, ...override })
+        }
+      } else {
+        finalSimulatedTxs.push(tx)
+      }
+    }
+
+    const typePriority: Record<string, number> = {
+      'OPENING_BALANCE': 1,
+      'PURCHASE': 1,
+      'TRANSFER': 2,
+      'RETURN': 2,
+      'SALE': 3,
+      'ADJUSTMENT': 3,
+    }
+
+    finalSimulatedTxs.sort((a, b) => {
+      if (a.transactionDate !== b.transactionDate) {
+        return a.transactionDate.localeCompare(b.transactionDate)
+      }
+      const pA = typePriority[a.transactionType] || 99
+      const pB = typePriority[b.transactionType] || 99
+      if (pA !== pB) {
+        return pA - pB
+      }
+      return a.createdAt.localeCompare(b.createdAt)
+    })
+
+    const runningStock: Record<string, number> = {}
+
+    for (const tx of finalSimulatedTxs) {
+      const { transactionType, sourceId, destinationId, quantity } = tx
+
+      if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
+        runningStock[destinationId] = (runningStock[destinationId] || 0) + quantity
+      } 
+      else if (transactionType === 'TRANSFER') {
+        const srcStock = (runningStock[sourceId] || 0) - quantity
+        if (srcStock < 0) {
+          throw new ValidationError(
+            `This transaction affects later inventory movements. Resulting stock for driver/location would fall below zero (${srcStock}).`
+          )
+        }
+        runningStock[sourceId] = srcStock
+        runningStock[destinationId] = (runningStock[destinationId] || 0) + quantity
+      } 
+      else if (transactionType === 'SALE') {
+        const srcStock = (runningStock[sourceId] || 0) - quantity
+        if (srcStock < 0) {
+          throw new ValidationError(
+            `This transaction affects later inventory movements. Resulting stock for driver/location would fall below zero (${srcStock}).`
+          )
+        }
+        runningStock[sourceId] = srcStock
+      }
+      else if (transactionType === 'RETURN') {
+        if (tx.sourceType === 'DRIVER') {
+          const srcStock = (runningStock[sourceId] || 0) - quantity
+          if (srcStock < 0) {
+            throw new ValidationError(
+              `This transaction affects later inventory movements. Resulting stock for driver/location would fall below zero (${srcStock}).`
+            )
+          }
+          runningStock[sourceId] = srcStock
+        }
+        if (tx.destinationType === 'DRIVER') {
+          runningStock[destinationId] = (runningStock[destinationId] || 0) + quantity
+        }
+      }
+      else if (transactionType === 'ADJUSTMENT') {
+        if (sourceId !== 'NONE') {
+          const srcStock = (runningStock[sourceId] || 0) - quantity
+          if (srcStock < 0) {
+            throw new ValidationError(
+              `This transaction affects later inventory movements. Resulting stock for driver/location would fall below zero (${srcStock}).`
+            )
+          }
+          runningStock[sourceId] = srcStock
+        } else if (destinationId !== 'NONE') {
+          runningStock[destinationId] = (runningStock[destinationId] || 0) + quantity
+        }
+      }
+    }
   }
 
   /**
@@ -1097,6 +1262,21 @@ export class TransactionService {
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
+      // Validate edit simulation before saving
+      try {
+        await this.simulateLedger({
+          [id]: {
+            sourceId: data.supplierId,
+            destinationId: data.destinationLocation,
+            quantity: data.quantity,
+            unitCost: data.unitCost,
+            transactionDate: data.transactionDate,
+          }
+        })
+      } catch (err: any) {
+        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
+      }
+
       // Update in DB
       await db
         .update(transactions)
@@ -1173,19 +1353,18 @@ export class TransactionService {
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
-      // Validate source driver has sufficient stock (excluding the prior transaction)
-      const srcStock = await InventoryService.calculateInventory(data.fromDriverId)
-      const priorQty = prior.sourceId === data.fromDriverId ? prior.quantity : 0
-      const availableStock = srcStock + priorQty
-      if (availableStock < data.quantity) {
-        const config = await SettingsService.getSettings()
-        const unit = config.quantity_abbreviation || 'Gal'
-        throw new InsufficientInventoryError(
-          `Driver ${fromDriver.name}`,
-          data.quantity,
-          availableStock,
-          unit
-        )
+      // Validate edit simulation before saving
+      try {
+        await this.simulateLedger({
+          [id]: {
+            sourceId: data.fromDriverId,
+            destinationId: data.toDriverId,
+            quantity: data.quantity,
+            transactionDate: data.transactionDate,
+          }
+        })
+      } catch (err: any) {
+        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
       }
 
       // Update in DB
@@ -1264,19 +1443,19 @@ export class TransactionService {
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
-      // Validate source driver has sufficient stock (excluding the prior transaction quantity)
-      const srcStock = await InventoryService.calculateInventory(data.driverId)
-      const priorQty = prior.sourceId === data.driverId ? prior.quantity : 0
-      const availableStock = srcStock + priorQty
-      if (availableStock < data.quantity) {
-        const config = await SettingsService.getSettings()
-        const unit = config.quantity_abbreviation || 'Gal'
-        throw new InsufficientInventoryError(
-          `Driver ${driver.name}`,
-          data.quantity,
-          availableStock,
-          unit
-        )
+      // Validate edit simulation before saving
+      try {
+        await this.simulateLedger({
+          [id]: {
+            sourceId: data.driverId,
+            destinationId: data.customerId,
+            quantity: data.quantity,
+            sellingRate: data.sellingRate,
+            transactionDate: data.transactionDate,
+          }
+        })
+      } catch (err: any) {
+        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
       }
 
       // WAC of driver at time of sale

@@ -28,16 +28,16 @@ export default function Dialog({ isOpen, onClose, children, className }: DialogP
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop (Simple semi-transparent background, no blur/glassmorphism) */}
+      {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-gray-950/40 transition-opacity"
+        className="fixed inset-0 bg-slate-900/40 transition-opacity"
         onClick={onClose}
       />
 
       {/* Dialog Frame */}
       <div
         className={clsx(
-          'relative bg-white border shadow-lg rounded max-w-md w-full flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150',
+          'relative bg-white border border-gray-200/50 shadow-2xl rounded-[20px] max-w-md w-full flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200',
           className
         )}
       >

@@ -1,5 +1,5 @@
 {
-  "name": "malak-enterprise-erp",
+  "name": "SGGTransport",
   "version": "1.0.0",
   "description": "Diesel Inventory Management System",
   "main": "dist-electron/main.js",
@@ -60,8 +60,9 @@
     "vitest": "^4.1.9"
   },
   "build": {
-    "appId": "com.malak.enterprise",
-    "productName": "Malak Enterprise ERP",
+    "appId": "com.sggt.transport",
+    "productName": "SGG Transport",
+    "icon": "build/icon.png",
     "directories": {
       "output": "release"
     },
@@ -71,6 +72,7 @@
     ],
     "asar": true,
     "win": {
+      "icon": "build/icon.png",
       "target": [
         "nsis"
       ]

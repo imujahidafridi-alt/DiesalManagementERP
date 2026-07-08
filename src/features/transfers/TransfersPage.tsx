@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import {
   Button,
   DataGrid,
   useShortcutEffect,
-  Select,
+  Combobox,
 } from '@/components/ui'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
@@ -29,7 +30,7 @@ interface TransferFormData {
 }
 
 const emptyForm: TransferFormData = {
-  date: new Date().toISOString().slice(0, 10),
+  date: new Date().toLocaleDateString('en-CA'),
   fromDriverId: '',
   toDriverId: '',
   quantity: '',
@@ -111,31 +112,21 @@ export default function TransfersPage() {
 
   // --- Derived calculations ---
   const fromDriverOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Select Driver...' },
-      ...drivers
-        .filter((d) => d.status === 'ACTIVE' && d.id !== formData.toDriverId)
-        .map((d) => {
-          return {
-            value: d.id,
-            label: d.name,
-          }
-        }),
-    ]
+    return drivers
+      .filter((d) => d.status === 'ACTIVE' && d.id !== formData.toDriverId)
+      .map((d) => ({
+        value: d.id,
+        label: d.name,
+      }))
   }, [drivers, formData.toDriverId])
 
   const toDriverOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Select Driver...' },
-      ...drivers
-        .filter((d) => d.status === 'ACTIVE' && d.id !== formData.fromDriverId)
-        .map((d) => {
-          return {
-            value: d.id,
-            label: d.name,
-          }
-        }),
-    ]
+    return drivers
+      .filter((d) => d.status === 'ACTIVE' && d.id !== formData.fromDriverId)
+      .map((d) => ({
+        value: d.id,
+        label: d.name,
+      }))
   }, [drivers, formData.fromDriverId])
 
   const getDriverStock = (driverId: string) => {
@@ -156,7 +147,7 @@ export default function TransfersPage() {
 
   // Summaries
   const summaries = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayStr = new Date().toLocaleDateString('en-CA')
     let todayVol = 0
     let totalVol = 0
     let todayCount = 0
@@ -225,11 +216,12 @@ export default function TransfersPage() {
   const handleNew = () => {
     setFormData({
       ...emptyForm,
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date().toLocaleDateString('en-CA'),
     })
     setFormErrors({})
     setEditId(null)
     setIsEditing(true)
+    addToast('Ready for new transfer entry. Keyboard focus set.', 'info')
     setTimeout(() => refDate.current?.focus(), 50)
   }
 
@@ -369,7 +361,7 @@ export default function TransfersPage() {
   // Columns Configuration
   const columns = useMemo((): GridColumn<any>[] => {
     return [
-      { key: 'transactionNumber', header: 'Tx Number', width: 95 },
+      { key: 'transactionNumber', header: 'Invoice No', width: 95 },
       { key: 'transactionDate', header: 'Date', width: 90 },
       {
         key: 'fromDriver',
@@ -508,13 +500,14 @@ export default function TransfersPage() {
                   <span className="text-[9px] font-bold text-blue-600 font-mono">Bal: {FormattingService.formatQuantity(fromDriverStock)}</span>
                 )}
               </div>
-              <Select
+              <Combobox
                 ref={refFrom}
-                error={formErrors.fromDriverId}
-                value={formData.fromDriverId}
-                onChange={(e) => setFormData({ ...formData, fromDriverId: e.target.value })}
-                onKeyDown={(e) => handleKeyDown(e, 'fromDriverId')}
                 options={fromDriverOptions}
+                value={formData.fromDriverId}
+                onChange={(val) => setFormData({ ...formData, fromDriverId: val })}
+                onSelect={() => refTo.current?.focus()}
+                placeholder="Select Driver..."
+                error={formErrors.fromDriverId}
               />
             </div>
 
@@ -526,13 +519,14 @@ export default function TransfersPage() {
                   <span className="text-[9px] font-bold text-green-600 font-mono">Bal: {FormattingService.formatQuantity(toDriverStock)}</span>
                 )}
               </div>
-              <Select
+              <Combobox
                 ref={refTo}
-                error={formErrors.toDriverId || (formData.fromDriverId === formData.toDriverId && formData.fromDriverId !== '' ? 'Source and destination drivers cannot be the same.' : undefined)}
-                value={formData.toDriverId}
-                onChange={(e) => setFormData({ ...formData, toDriverId: e.target.value })}
-                onKeyDown={(e) => handleKeyDown(e, 'toDriverId')}
                 options={toDriverOptions}
+                value={formData.toDriverId}
+                onChange={(val) => setFormData({ ...formData, toDriverId: val })}
+                onSelect={() => refVehicleNum.current?.focus()}
+                placeholder="Select Driver..."
+                error={formErrors.toDriverId || (formData.fromDriverId === formData.toDriverId && formData.fromDriverId !== '' ? 'Source and destination drivers cannot be the same.' : undefined)}
               />
             </div>
 
@@ -641,7 +635,7 @@ export default function TransfersPage() {
           <span>DATABASE: {dbConnected ? 'SQLITE_ONLINE' : 'SQLITE_OFFLINE'}</span>
         </div>
         <div>
-          <span>Sahara Diesels v1.0.0</span>
+          <span>Sahara Diesels {appConfig.version}</span>
         </div>
       </div>
     </div>

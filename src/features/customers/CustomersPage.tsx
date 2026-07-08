@@ -276,9 +276,8 @@ export default function CustomersPage() {
       width: 90,
       render: (row) => (
         <span
-          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-            row.status === 'ACTIVE' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-gray-50 border border-gray-200 text-gray-700'
-          }`}
+          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.status === 'ACTIVE' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-gray-50 border border-gray-200 text-gray-700'
+            }`}
         >
           {row.status || 'ACTIVE'}
         </span>
@@ -288,7 +287,7 @@ export default function CustomersPage() {
 
   // Statement Columns
   const statementColumns = useMemo((): GridColumn<any>[] => [
-    { key: 'transactionNumber', header: 'Tx Number', width: 100 },
+    { key: 'transactionNumber', header: 'Invoice No', width: 100 },
     { key: 'transactionDate', header: 'Date', width: 90 },
     { key: 'transactionType', header: 'Type', width: 100 },
     { key: 'driverName', header: 'Delivered By Driver', width: 160 },

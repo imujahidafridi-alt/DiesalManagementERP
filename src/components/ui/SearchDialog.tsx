@@ -178,10 +178,10 @@ export default function SearchDialog() {
   return (
     <div className="fixed inset-0 z-[9950] flex items-start justify-center pt-[15vh] p-4 select-none">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-gray-900/30 backdrop-blur-xs" onClick={() => setSearchOpen(false)} />
+      <div className="absolute inset-0 bg-slate-900/40" onClick={() => setSearchOpen(false)} />
 
       {/* Search Card */}
-      <div className="relative w-full max-w-lg bg-white rounded border shadow-2xl overflow-hidden flex flex-col max-h-[60vh]">
+      <div className="relative w-full max-w-lg bg-white border border-gray-200/50 shadow-2xl rounded-[20px] overflow-hidden flex flex-col max-h-[60vh]">
         {/* Search Input */}
         <div className="flex items-center gap-3 border-b px-4 py-3 bg-gray-50/50">
           <Search size={16} className="text-gray-400 shrink-0" />
@@ -215,7 +215,7 @@ export default function SearchDialog() {
                   onMouseEnter={() => setActiveIndex(idx)}
                   className={clsx(
                     'px-4 py-2 flex items-center justify-between cursor-pointer transition-colors',
-                    isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-50'
+                    isActive ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold' : 'text-gray-700 hover:bg-gray-50/50'
                   )}
                 >
                   <div className="flex items-center gap-3 min-w-0">

@@ -4,20 +4,20 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --background: 210 40% 98%; /* Light slate background color tint */
+    --foreground: 222.2 84% 4.9%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222.2 84% 4.9%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 222.2 84% 4.9%;
 
     --primary: 221.2 83.2% 53.3%; /* Blue */
     --primary-foreground: 210 40% 98%;
 
     --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222 47.4% 11.2%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
 
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
@@ -28,11 +28,11 @@
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --border: 214.3 32% 91%;
+    --input: 214.3 32% 91%;
     --ring: 221.2 83.2% 53.3%;
 
-    --radius: 4px; /* Compact border radius: 4px spacing scale */
+    --radius: 12px; /* Redesigned premium border radius: 12px spacing scale */
   }
 }
 
@@ -42,7 +42,8 @@
   }
   
   body {
-    @apply bg-background text-foreground antialiased font-sans select-none overflow-hidden;
+    @apply text-foreground antialiased font-sans select-none overflow-hidden;
+    background: linear-gradient(180deg, #F8FAFC 0%, #F3F6FB 100%) !important;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
@@ -60,7 +61,7 @@
     @apply bg-transparent;
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-200 hover:bg-gray-300;
+    @apply bg-gray-200/80 hover:bg-gray-300;
     border-radius: 3px;
   }
 }
@@ -68,7 +69,19 @@
 @layer utilities {
   /* Helper utility for focus rings */
   .focus-ring {
-    @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20 focus-visible:ring-offset-0;
+  }
+
+  .glass-panel {
+    background: #FFFFFF;
+  }
+
+  .sidebar-gradient {
+    background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%);
+  }
+
+  .active-glow {
+    box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.3);
   }
 }
 
@@ -118,5 +131,14 @@
   
   thead {
     display: table-header-group;
+    background: #2563EB !important;
+    color: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  th {
+    background: #2563EB !important;
+    color: white !important;
   }
 }

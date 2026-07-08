@@ -16,9 +16,13 @@ if (isTest) {
   dbPath = ':memory:'
   sqlite = new Database(dbPath)
 } else if (isElectron) {
-  // Store database file in application data directory
-  const userDataPath = app.getPath('userData')
-  dbPath = path.join(userDataPath, 'diesel_erp.db')
+  // Store database file in a fixed application data directory
+  // Using a fixed folder name so renaming the app never moves the database
+  const appDataPath = app.getPath('appData')
+  const fixedFolder = path.join(appDataPath, 'SGGTransport')
+  // Ensure the folder exists
+  require('fs').mkdirSync(fixedFolder, { recursive: true })
+  dbPath = path.join(fixedFolder, 'diesel_erp.db')
   sqlite = new Database(dbPath)
 } else {
   // Fallback for migrations or script runs
@@ -205,6 +209,8 @@ function runMigration() {
 
 try {
   runMigration()
+  sqlite.prepare("UPDATE transactions SET created_by = 'Haroon Wazir' WHERE created_by = 'Default Operator'").run()
+  sqlite.prepare("UPDATE audit_logs SET user = 'Haroon Wazir' WHERE user = 'Default Operator'").run()
 } catch (e) {
   console.error('Startup migration execution error:', e)
 }

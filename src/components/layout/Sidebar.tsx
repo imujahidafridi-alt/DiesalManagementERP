@@ -16,8 +16,10 @@ import {
   ChevronRight,
   History,
   Upload,
+  Info,
 } from 'lucide-react'
 import clsx from 'clsx'
+import { appConfig } from '@/config/appConfig'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -32,6 +34,7 @@ const navItems = [
   { path: '/audit', label: 'Audit Trail', icon: History },
   { path: '/import', label: 'Data Import', icon: Upload },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
+  { path: '/about', label: 'About', icon: Info },
 ]
 
 export default function Sidebar() {
@@ -41,36 +44,36 @@ export default function Sidebar() {
   return (
     <aside
       className={clsx(
-        'h-full border-r bg-white flex flex-col justify-between transition-all duration-200 select-none ease-in-out',
-        sidebarCollapsed ? 'w-14' : 'w-56'
+        'h-full border-r border-slate-800/80 sidebar-gradient flex flex-col justify-between transition-all duration-300 select-none ease-in-out shadow-xl shrink-0 text-slate-300',
+        sidebarCollapsed ? 'w-16' : 'w-60'
       )}
     >
       <div className="flex flex-col flex-1">
         {/* Brand Header & Toggle */}
         {sidebarCollapsed ? (
-          <div className="h-9 border-b flex items-center justify-center">
+          <div className="h-12 border-b border-slate-800/50 flex items-center justify-center">
             <button
               onClick={toggleSidebar}
-              className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-900 focus:outline-none transition-colors"
+              className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white focus:outline-none transition-colors"
               title="Expand Sidebar"
             >
               <ChevronRight size={16} />
             </button>
           </div>
         ) : (
-          <div className="border-b pb-3 flex flex-col">
+          <div className="border-b border-slate-800/50 pb-3 flex flex-col">
             <div className="flex justify-end px-2 pt-1">
               <button
                 onClick={toggleSidebar}
-                className="p-1 hover:bg-gray-100 rounded text-gray-500 hover:text-gray-900 focus:outline-none transition-colors"
+                className="p-1.5 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white focus:outline-none transition-colors"
                 title="Collapse Sidebar"
               >
                 <ChevronLeft size={16} />
               </button>
             </div>
             <div className="flex flex-col items-center px-4 mt-1 select-none">
-              <Logo className="w-full h-auto max-h-16" />
-              <span className="text-[9px] font-bold text-gray-500 mt-2 uppercase text-center tracking-wider leading-tight">
+              <Logo className="w-full h-auto max-h-16 invert opacity-90 brightness-200" />
+              <span className="text-[9px] font-bold text-slate-400 mt-2 uppercase text-center tracking-wider leading-tight">
                 Sahara Group General Transport
               </span>
             </div>
@@ -78,7 +81,7 @@ export default function Sidebar() {
         )}
 
         {/* Navigation Items */}
-        <nav className="flex-1 py-2 px-2 space-y-1">
+        <nav className="flex-1 py-3 px-2 space-y-1.5 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
@@ -87,15 +90,28 @@ export default function Sidebar() {
                 to={item.path}
                 className={({ isActive }) =>
                   clsx(
-                    'flex items-center gap-3 px-3 py-2 text-xs font-medium rounded transition-colors',
+                    'relative flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all duration-200 group',
                     isActive
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white active-glow'
+                      : 'text-slate-400 hover:bg-white/5 hover:text-white'
                   )
                 }
               >
-                <Icon size={16} className="shrink-0" />
-                {!sidebarCollapsed && <span>{item.label}</span>}
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <span className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-white rounded-r-md" />
+                    )}
+                    <Icon
+                      size={16}
+                      className={clsx(
+                        'shrink-0 transition-transform duration-200 group-hover:scale-110',
+                        isActive ? 'text-white' : 'text-slate-400 group-hover:text-white'
+                      )}
+                    />
+                    {!sidebarCollapsed && <span>{item.label}</span>}
+                  </>
+                )}
               </NavLink>
             )
           })}
@@ -103,8 +119,8 @@ export default function Sidebar() {
       </div>
 
       {/* Footer / Status */}
-      <div className="p-3 border-t text-[10px] text-gray-400 font-mono text-center">
-        {!sidebarCollapsed ? `v1.0.0 (${dbConnected ? 'Online' : 'Offline'})` : (dbConnected ? 'ON' : 'OFF')}
+      <div className="p-3 border-t border-slate-800/50 text-[10px] text-slate-500 font-mono text-center">
+        {!sidebarCollapsed ? `${appConfig.version} (${dbConnected ? 'Online' : 'Offline'})` : (dbConnected ? 'ON' : 'OFF')}
       </div>
     </aside>
   )

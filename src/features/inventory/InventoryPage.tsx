@@ -32,7 +32,7 @@ export default function InventoryPage() {
   // Adjustment form states
   const [isAdjusting, setIsAdjusting] = useState(false)
   const [formData, setFormData] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: new Date().toLocaleDateString('en-CA'),
     driverId: '',
     adjustmentType: 'INCREASE' as 'INCREASE' | 'DECREASE',
     quantity: '',
@@ -124,7 +124,7 @@ export default function InventoryPage() {
   const handleCancel = () => {
     setIsAdjusting(false)
     setFormData({
-      date: new Date().toISOString().slice(0, 10),
+      date: new Date().toLocaleDateString('en-CA'),
       driverId: '',
       adjustmentType: 'INCREASE',
       quantity: '',
