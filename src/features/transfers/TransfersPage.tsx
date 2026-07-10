@@ -9,6 +9,8 @@ import {
   useShortcutEffect,
   Combobox,
 } from '@/components/ui'
+import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
+import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -65,6 +67,11 @@ export default function TransfersPage() {
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof TransferFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Conflict dialog state
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
+  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Input refs for keyboard traversals
   const refDate = useRef<HTMLInputElement>(null)
@@ -251,13 +258,15 @@ export default function TransfersPage() {
       type: 'delete',
       confirmText: 'Soft Delete',
       onConfirm: async () => {
-        try {
-          await deleteTransfer(selectedTxRow.id)
-          addToast('Transfer deleted successfully', 'success')
+        const result = await deleteTransfer(selectedTxRow.id)
+        if (result.success) {
+          addToast('Transfer deleted and inventory recalculated.', 'success')
           setSelectedTxRow(null)
           loadData()
-        } catch (err: any) {
-          addToast(err.message || 'Error deleting transfer', 'error')
+        } else {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleDelete)
+          setConflictOpen(true)
         }
       },
     })
@@ -318,7 +327,13 @@ export default function TransfersPage() {
       }
 
       if (editId) {
-        await updateTransfer(editId, payload)
+        const result = await updateTransfer(editId, payload)
+        if (!result.success) {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleSubmit)
+          setConflictOpen(true)
+          return
+        }
         addToast('Transfer invoice updated successfully', 'success')
       } else {
         await createTransfer(payload)
@@ -398,6 +413,7 @@ export default function TransfersPage() {
   }, [drivers, unit])
 
   return (
+    <>
     <div className="space-y-4">
       {/* 1. Transfer Entry Toolbar */}
       <div className="flex items-center justify-between border-b pb-3 select-none bg-white p-3.5 rounded border shadow-subtle">
@@ -639,5 +655,17 @@ export default function TransfersPage() {
         </div>
       </div>
     </div>
+
+    <InventoryConflictDialog
+      isOpen={conflictOpen}
+      conflicts={stockConflicts}
+      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
+      onValidateAgain={pendingRetry ? () => {
+        setConflictOpen(false)
+        setStockConflicts([])
+        pendingRetry()
+      } : undefined}
+    />
+    </>
   )
 }

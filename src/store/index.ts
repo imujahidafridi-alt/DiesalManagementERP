@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { Transaction, Supplier, Inventory, Driver, Customer } from '@/database/repositories/interfaces'
+import type { EditDeleteResult } from '@/database/services/TransactionService'
 
 // --- 1. UI Store ---
 export interface Toast {
@@ -132,13 +133,13 @@ interface AppState {
     supplierId: string
     destinationLocation: string
     quantity: number
-    unitCost: number // in cents
+    unitCost: number
     referenceNumber?: string
     transactionDate: string
     notes?: string
-  }) => Promise<Transaction>
+  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
 
-  deletePurchase: (id: string) => Promise<boolean>
+  deletePurchase: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
 
   createTransfer: (data: {
     fromDriverId: string
@@ -156,9 +157,9 @@ interface AppState {
     vehicleNumber?: string
     transactionDate: string
     notes?: string
-  }) => Promise<Transaction>
+  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
 
-  deleteTransfer: (id: string) => Promise<boolean>
+  deleteTransfer: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
   getDriverStatementReport: (driverId: string, filters?: { startDate?: string; endDate?: string }) => Promise<{
     driverName: string
     assignedVehiclePlate: string | null
@@ -183,13 +184,15 @@ interface AppState {
     driverId: string
     customerId: string
     quantity: number
-    sellingRate: number // in cents
+    sellingRate: number
     vehicleNumber?: string
     transactionDate: string
     notes?: string
-  }) => Promise<Transaction>
+  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
 
-  deleteSale: (id: string) => Promise<boolean>
+  deleteSale: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
+
+  refreshAllTransactionData: () => Promise<void>
   createAdjustment: (data: {
     locationId: string
     locationType: 'DRIVER' | 'INVENTORY' | 'VEHICLE'
@@ -397,19 +400,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     return res
   },
 
-  updatePurchase: async (id, data) => {
+  refreshAllTransactionData: async () => {
+    await Promise.all([
+      get().fetchPurchases(),
+      get().fetchSales(),
+      get().fetchInventorySnapshots(),
+    ])
+  },
+
+  updatePurchase: async (id, data, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:updatePurchase', id, data, operator)
-    await get().fetchPurchases()
-    await get().fetchInventorySnapshots()
+    const res = await window.api.invoke('transactions:updatePurchase', id, data, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
     return res
   },
 
-  deletePurchase: async (id) => {
+  deletePurchase: async (id, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
-    await get().fetchPurchases()
-    await get().fetchInventorySnapshots()
+    const res = await window.api.invoke('transactions:deleteTransaction', id, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
     return res
   },
 
@@ -420,17 +429,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     return res
   },
 
-  updateTransfer: async (id, data) => {
+  updateTransfer: async (id, data, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:updateTransfer', id, data, operator)
-    await get().fetchInventorySnapshots()
+    const res = await window.api.invoke('transactions:updateTransfer', id, data, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
     return res
   },
 
-  deleteTransfer: async (id) => {
+  deleteTransfer: async (id, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
-    await get().fetchInventorySnapshots()
+    const res = await window.api.invoke('transactions:deleteTransaction', id, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
     return res
   },
 
@@ -446,19 +455,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { ...res, vehicleNumber: res.referenceNumber || undefined }
   },
 
-  updateSale: async (id, data) => {
+  updateSale: async (id, data, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:updateSale', id, data, operator)
-    await get().fetchSales()
-    await get().fetchInventorySnapshots()
-    return { ...res, vehicleNumber: res.referenceNumber || undefined }
+    const res = await window.api.invoke('transactions:updateSale', id, data, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
+    return res
   },
 
-  deleteSale: async (id) => {
+  deleteSale: async (id, overrideValidation?) => {
     const operator = get().currentOperator || 'Haroon Wazir'
-    const res = await window.api.invoke('transactions:deleteTransaction', id, operator)
-    await get().fetchSales()
-    await get().fetchInventorySnapshots()
+    const res = await window.api.invoke('transactions:deleteTransaction', id, operator, overrideValidation)
+    if (res.success) await get().refreshAllTransactionData()
     return res
   },
 

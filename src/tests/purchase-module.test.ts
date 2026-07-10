@@ -199,8 +199,10 @@ describe('Purchase Module & Retroactive WAC Propagation Integration Tests', () =
         operator
       )
 
-      expect(updatedP1.unitCost).toBe(100)
-      expect(updatedP1.averageCostSnapshot).toBe(100)
+      expect(updatedP1.success).toBe(true)
+      if (!updatedP1.success) throw new Error('updatePurchase returned conflicts')
+      expect(updatedP1.data.unitCost).toBe(100)
+      expect(updatedP1.data.averageCostSnapshot).toBe(100)
 
       // 5. Verify Driver A WAC has updated to 100
       const wacAfter = await InventoryService.calculateWeightedAverageCost(driverId)

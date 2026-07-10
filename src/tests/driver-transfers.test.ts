@@ -157,7 +157,9 @@ describe('Driver Ledger & Internal Diesel Transfer Integration Tests', () => {
         },
         operator
       )
-      expect(updatedTransfer.quantity).toBe(500)
+      expect(updatedTransfer.success).toBe(true)
+      if (!updatedTransfer.success) throw new Error('updateTransfer returned conflicts')
+      expect(updatedTransfer.data.quantity).toBe(500)
 
       // Verify recalculated balances
       balA = await DriverService.calculateDriverBalance(driverAId)

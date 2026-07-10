@@ -28,6 +28,43 @@ const driverRepo = new DriverRepository()
 const customerRepo = new CustomerRepository()
 const supplierRepo = new SupplierRepository()
 
+// ─── Shared Types ────────────────────────────────────────────────────────────
+
+export interface AffectedTransaction {
+  txId: string
+  txNumber: string
+  txType: string
+  txDate: string
+  quantity: number
+  stockAfter: number
+}
+
+export interface StockConflict {
+  editedTxId: string
+  editedTxNumber: string
+  editedTxType: string
+  driverLocationId: string
+  driverName?: string
+  shortage: number          // always negative
+  requiredStock: number     // Math.abs(shortage)
+  affectedTransactions: AffectedTransaction[]
+  description: string
+  suggestedFixes: string[]
+}
+
+export type EditDeleteResult<T> =
+  | { success: true; data: T }
+  | { success: false; conflicts: StockConflict[] }
+
+// ─── Internal Running State ──────────────────────────────────────────────────
+
+interface LocationState {
+  stock: number
+  wac: number
+  cumulative_volume: number
+  cumulative_value: number
+}
+
 export class TransactionService {
   /**
    * Execute Purchase: Supplier -> Inventory Tank
@@ -673,14 +710,27 @@ export class TransactionService {
   }
 
   /**
-   * Reversible Soft Delete: updates deletedAt and rebuilds affected snapshots
+   * Soft-delete a transaction with two-stage inventory validation.
+   * Returns EditDeleteResult — caller must check result.success before proceeding.
+   * overrideValidation: true skips the workflow "must be latest of type" guard only;
+   * the two-stage accounting check always runs.
    */
-  static async deleteTransaction(id: string, user: string): Promise<boolean> {
+  static async deleteTransaction(
+    id: string,
+    user: string,
+    overrideValidation = false
+  ): Promise<EditDeleteResult<boolean>> {
     const prior = await txRepo.getById(id)
     if (!prior) throw new Error(`Transaction not found: ${id}`)
 
-    return runInTransaction(async () => {
-      // 1. Check if this is the latest transaction of its type
+    const editedTxMeta = {
+      id,
+      number: prior.transactionNumber || id,
+      type: 'DELETE',
+    }
+
+    // Workflow guard (skippable) — block if later same-type transactions exist
+    if (!overrideValidation) {
       const laterSameType = await db
         .select()
         .from(transactions)
@@ -700,28 +750,27 @@ export class TransactionService {
         .limit(1)
 
       if (laterSameType.length > 0) {
-        throw new ValidationError('This transaction affects later inventory movements. Edit the transaction instead.')
+        // Run two-stage check — recalculation may still resolve the conflict
+        const conflicts = await this.runTwoStageValidation({ [id]: null }, editedTxMeta)
+        if (conflicts.length > 0) return { success: false, conflicts }
+        // If resolved by recalculation, fall through and commit
       }
+    }
 
-      // 2. Simulate deletion to verify stock remains non-negative at all subsequent points
-      try {
-        await this.simulateLedger({ [id]: null })
-      } catch (err) {
-        throw new ValidationError('This transaction affects later inventory movements. Edit the transaction instead.')
-      }
+    // Accounting math check — always runs regardless of overrideValidation
+    const conflicts = await this.runTwoStageValidation({ [id]: null }, editedTxMeta)
+    if (conflicts.length > 0) return { success: false, conflicts }
 
+    return runInTransaction(async () => {
       const now = new Date().toISOString()
-      
-      // Update deletedAt
+
       await db
         .update(transactions)
         .set({ deletedAt: now, updatedAt: now })
         .where(eq(transactions.id, id))
 
-      // Trigger retroactive recomputations chronologically
       await this.recalculateLedgerInternal()
 
-      // Log audit
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
         entityName: 'transactions',
@@ -733,7 +782,7 @@ export class TransactionService {
         user,
       })
 
-      return true
+      return { success: true as const, data: true }
     })
   }
 
@@ -902,6 +951,274 @@ export class TransactionService {
     })
   }
 
+  // ─── Core Ledger Engine ────────────────────────────────────────────────────
+
+  /**
+   * Single WAC algorithm used by both validation (strict mode) and
+   * recalculation (rebuild mode).
+   *
+   * strict  — tracks exact stock levels (can go negative), accumulates conflicts
+   * rebuild — clips stock at Math.max(0, ...) and returns final state for DB writes
+   */
+  private static runLedgerPass(
+    sortedTxs: any[],
+    mode: 'strict' | 'rebuild',
+    _editedTxMeta?: { id: string; number: string; type: string }
+  ): {
+    state: Record<string, LocationState>
+    conflicts: Map<string, { shortage: number; affected: AffectedTransaction[] }>
+  } {
+    const state: Record<string, LocationState> = {}
+    // conflicts keyed by driverLocationId
+    const conflicts = new Map<string, { shortage: number; affected: AffectedTransaction[] }>()
+
+    const getState = (locationId: string): LocationState => {
+      if (!state[locationId]) {
+        state[locationId] = { stock: 0, wac: 0, cumulative_volume: 0, cumulative_value: 0 }
+      }
+      return state[locationId]
+    }
+
+    const recordConflict = (
+      locationId: string,
+      stockAfter: number,
+      tx: any
+    ) => {
+      const existing = conflicts.get(locationId)
+      const affEntry: AffectedTransaction = {
+        txId: tx.id,
+        txNumber: tx.transactionNumber || tx.id,
+        txType: tx.transactionType,
+        txDate: tx.transactionDate,
+        quantity: tx.quantity,
+        stockAfter,
+      }
+      if (existing) {
+        if (stockAfter < existing.shortage) existing.shortage = stockAfter
+        existing.affected.push(affEntry)
+      } else {
+        conflicts.set(locationId, { shortage: stockAfter, affected: [affEntry] })
+      }
+    }
+
+    for (const tx of sortedTxs) {
+      const { transactionType, sourceType, sourceId, destinationType, destinationId, quantity } = tx
+      let unitCost = tx.unitCost
+
+      if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
+        const dest = getState(destinationId)
+        const newWac = (dest.cumulative_volume + quantity) > 0
+          ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+          : unitCost
+        dest.cumulative_volume += quantity
+        dest.cumulative_value += quantity * unitCost
+        dest.wac = newWac
+        dest.stock += quantity
+
+      } else if (transactionType === 'TRANSFER') {
+        const src = getState(sourceId)
+        const dest = getState(destinationId)
+        unitCost = src.wac
+        const newSrcStock = src.stock - quantity
+        if (mode === 'strict' && newSrcStock < 0) {
+          recordConflict(sourceId, newSrcStock, tx)
+          src.stock = newSrcStock  // keep going to find all conflicts
+        } else {
+          src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
+        }
+        const newDestWac = (dest.cumulative_volume + quantity) > 0
+          ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+          : unitCost
+        dest.cumulative_volume += quantity
+        dest.cumulative_value += quantity * unitCost
+        dest.wac = newDestWac
+        dest.stock += quantity
+
+      } else if (transactionType === 'SALE') {
+        const src = getState(sourceId)
+        const newSrcStock = src.stock - quantity
+        if (mode === 'strict' && newSrcStock < 0) {
+          recordConflict(sourceId, newSrcStock, tx)
+          src.stock = newSrcStock
+        } else {
+          src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
+        }
+
+      } else if (transactionType === 'RETURN') {
+        if (sourceId !== 'NONE' && sourceType === 'DRIVER') {
+          const src = getState(sourceId)
+          const newSrcStock = src.stock - quantity
+          if (mode === 'strict' && newSrcStock < 0) {
+            recordConflict(sourceId, newSrcStock, tx)
+            src.stock = newSrcStock
+          } else {
+            src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
+          }
+        }
+        if (destinationId !== 'NONE' && destinationType === 'DRIVER') {
+          const dest = getState(destinationId)
+          const newWac = (dest.cumulative_volume + quantity) > 0
+            ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+            : unitCost
+          dest.cumulative_volume += quantity
+          dest.cumulative_value += quantity * unitCost
+          dest.wac = newWac
+          dest.stock += quantity
+        }
+
+      } else if (transactionType === 'ADJUSTMENT') {
+        if (sourceId !== 'NONE') {
+          const src = getState(sourceId)
+          unitCost = src.wac
+          const newSrcStock = src.stock - quantity
+          if (mode === 'strict' && newSrcStock < 0) {
+            recordConflict(sourceId, newSrcStock, tx)
+            src.stock = newSrcStock
+          } else {
+            src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
+          }
+        } else if (destinationId !== 'NONE') {
+          const dest = getState(destinationId)
+          unitCost = dest.wac
+          const newWac = (dest.cumulative_volume + quantity) > 0
+            ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
+            : unitCost
+          dest.cumulative_volume += quantity
+          dest.cumulative_value += quantity * unitCost
+          dest.wac = newWac
+          dest.stock += quantity
+        }
+      }
+    }
+
+    return { state, conflicts }
+  }
+
+  /**
+   * Stage 2 validation: apply overrides in-memory, run the ledger engine in strict mode,
+   * and return a fully-populated StockConflict[] (may contain multiple drivers).
+   * Returns empty array if the change is valid after recalculation.
+   */
+  private static async validateLedgerConflicts(
+    overrides: Record<string, any | null>,
+    editedTxMeta: { id: string; number: string; type: string }
+  ): Promise<StockConflict[]> {
+    // 1. Fetch all active transactions
+    const activeTxs = await db
+      .select()
+      .from(transactions)
+      .where(isNull(transactions.deletedAt))
+
+    // 2. For restore simulations, also include soft-deleted records that appear in overrides
+    const simulatedTxs: any[] = [...activeTxs]
+    for (const key of Object.keys(overrides)) {
+      const overrideVal = overrides[key]
+      const inActive = activeTxs.some((t) => t.id === key)
+      if (overrideVal !== null && !inActive) {
+        const deletedTx = await db
+          .select()
+          .from(transactions)
+          .where(eq(transactions.id, key))
+          .limit(1)
+        if (deletedTx[0]) simulatedTxs.push({ ...deletedTx[0], ...overrideVal })
+      }
+    }
+
+    // 3. Apply overrides (null = delete, object = merge)
+    const finalTxs: any[] = []
+    for (const tx of simulatedTxs) {
+      if (tx.id in overrides) {
+        const override = overrides[tx.id]
+        if (override === null) continue  // simulated deletion
+        finalTxs.push({ ...tx, ...override })
+      } else {
+        finalTxs.push(tx)
+      }
+    }
+
+    // 4. Sort chronologically (same order as recalculateLedgerInternal)
+    const typePriority: Record<string, number> = {
+      OPENING_BALANCE: 1, PURCHASE: 1, TRANSFER: 2, RETURN: 2, SALE: 3, ADJUSTMENT: 3,
+    }
+    finalTxs.sort((a, b) => {
+      if (a.transactionDate !== b.transactionDate)
+        return a.transactionDate.localeCompare(b.transactionDate)
+      const pA = typePriority[a.transactionType] || 99
+      const pB = typePriority[b.transactionType] || 99
+      if (pA !== pB) return pA - pB
+      return a.createdAt.localeCompare(b.createdAt)
+    })
+
+    // 5. Run strict engine
+    const { conflicts } = this.runLedgerPass(finalTxs, 'strict', editedTxMeta)
+    if (conflicts.size === 0) return []
+
+    // 6. Enrich each conflict with driver name and suggested fixes
+    const result: StockConflict[] = []
+    for (const [locationId, { shortage, affected }] of conflicts.entries()) {
+      let driverName: string | undefined
+      try {
+        const driver = await driverRepo.getById(locationId)
+        driverName = driver?.name
+      } catch { /* ignore */ }
+
+      const firstAff = affected[0]
+
+      const description =
+        `${editedTxMeta.type === 'DELETE' ? 'Deleting' : 'Editing'} ` +
+        `${editedTxMeta.type} ${editedTxMeta.number} would cause ` +
+        `${driverName || locationId} to have ${shortage.toFixed(0)} L ` +
+        `before ${firstAff?.txNumber} on ${firstAff?.txDate}` +
+        (affected.length > 1 ? `. Also affects: ${affected.slice(1).map((a) => a.txNumber).join(', ')}` : '.')
+
+      const requiredStock = Math.abs(shortage)
+      const suggestedFixes: string[] = [
+        `Reduce the edited quantity to free up at least ${requiredStock.toFixed(0)} L`,
+        ...affected.slice(0, 3).map(
+          (a) => `Delete or reduce ${a.txNumber} (${a.txType}, ${a.quantity} L) before retrying`
+        ),
+        `Add a new Purchase of ≥${requiredStock.toFixed(0)} L before ${firstAff?.txDate}`,
+      ]
+
+      result.push({
+        editedTxId: editedTxMeta.id,
+        editedTxNumber: editedTxMeta.number,
+        editedTxType: editedTxMeta.type,
+        driverLocationId: locationId,
+        driverName,
+        shortage,
+        requiredStock,
+        affectedTransactions: affected,
+        description,
+        suggestedFixes,
+      })
+    }
+    return result
+  }
+
+  // ─── Two-Stage Validation Orchestrator ───────────────────────────────────────
+
+  /**
+   * Runs Stage 1 (simulateLedger throw-based quick check), and only if Stage 1 fails,
+   * runs Stage 2 (validateLedgerConflicts full simulation with recalculation).
+   * Returns empty array if the operation is valid. Returns StockConflict[] if blocked.
+   */
+  private static async runTwoStageValidation(
+    overrides: Record<string, any | null>,
+    editedTxMeta: { id: string; number: string; type: string }
+  ): Promise<StockConflict[]> {
+    // Stage 1 — quick throw-based check (untouched simulateLedger)
+    try {
+      await this.simulateLedger(overrides)
+      return []  // Stage 1 passed — no need for Stage 2
+    } catch {
+      // Stage 1 found a potential conflict — run full simulation
+    }
+
+    // Stage 2 — full in-memory recalculation using runLedgerPass
+    return this.validateLedgerConflicts(overrides, editedTxMeta)
+  }
+
   /**
    * Simulates running the entire chronological ledger to check if any edits or deletions
    * would result in negative stock levels at any point in the timeline.
@@ -1032,142 +1349,104 @@ export class TransactionService {
 
   /**
    * Retroactively recalculate WAC snapshots and profits for all active transactions chronologically.
-   * Internal implementation - must be called inside runInTransaction or normal context.
+   * Delegates core accounting to runLedgerPass (rebuild mode) then writes results to DB.
+   * Internal — must be called inside runInTransaction or normal context.
    */
   static async recalculateLedgerInternal(): Promise<void> {
-    // 1. Fetch all active transactions sorted by date and creation time ascending
+    // 1. Fetch & sort active transactions
     const activeTxs = await db
       .select()
       .from(transactions)
       .where(isNull(transactions.deletedAt))
       .orderBy(transactions.transactionDate, transactions.createdAt)
 
-    // Sort in-memory to process inflows before transfers and outflows on the same day
     const typePriority: Record<string, number> = {
-      'OPENING_BALANCE': 1,
-      'PURCHASE': 1,
-      'TRANSFER': 2,
-      'RETURN': 2,
-      'SALE': 3,
-      'ADJUSTMENT': 3,
+      OPENING_BALANCE: 1, PURCHASE: 1, TRANSFER: 2, RETURN: 2, SALE: 3, ADJUSTMENT: 3,
     }
-
     activeTxs.sort((a, b) => {
-      if (a.transactionDate !== b.transactionDate) {
+      if (a.transactionDate !== b.transactionDate)
         return a.transactionDate.localeCompare(b.transactionDate)
-      }
       const pA = typePriority[a.transactionType] || 99
       const pB = typePriority[b.transactionType] || 99
-      if (pA !== pB) {
-        return pA - pB
-      }
+      if (pA !== pB) return pA - pB
       return a.createdAt.localeCompare(b.createdAt)
     })
 
-    // 2. Track running stock and WAC for all items/locations in memory
-    const runningState: Record<
-      string,
-      {
-        stock: number
-        wac: number
-        cumulative_volume: number
-        cumulative_value: number
-      }
-    > = {}
+    // 2. Run core engine in rebuild mode (clips at 0, computes WAC)
+    const { state: runningState } = this.runLedgerPass(activeTxs, 'rebuild')
 
-    const getRunning = (locationId: string) => {
-      if (!runningState[locationId]) {
-        runningState[locationId] = {
-          stock: 0,
-          wac: 0,
-          cumulative_volume: 0,
-          cumulative_value: 0,
-        }
-      }
-      return runningState[locationId]
+    // 3. Write WAC/profit snapshots back to each transaction record
+    //    Re-run in rebuild mode tracking snapshots per tx for DB writes
+    const snapState: Record<string, LocationState> = {}
+    const getSnap = (locationId: string): LocationState => {
+      if (!snapState[locationId])
+        snapState[locationId] = { stock: 0, wac: 0, cumulative_volume: 0, cumulative_value: 0 }
+      return snapState[locationId]
     }
 
-    // 3. Chronologically process each transaction
     for (const tx of activeTxs) {
       const { id, transactionType, sourceType, sourceId, destinationType, destinationId, quantity } = tx
-      
       let unitCost = tx.unitCost
       let averageCostSnapshot = tx.averageCostSnapshot
       let profitSnapshot = tx.profitSnapshot
 
       if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
-        const dest = getRunning(destinationId)
-        
+        const dest = getSnap(destinationId)
         const newWac = (dest.cumulative_volume + quantity) > 0
           ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
           : unitCost
-        
         dest.cumulative_volume += quantity
         dest.cumulative_value += quantity * unitCost
         dest.wac = newWac
         dest.stock += quantity
         averageCostSnapshot = dest.wac
-      } 
-      else if (transactionType === 'TRANSFER') {
-        const src = getRunning(sourceId)
-        const dest = getRunning(destinationId)
-        
+      } else if (transactionType === 'TRANSFER') {
+        const src = getSnap(sourceId)
+        const dest = getSnap(destinationId)
         unitCost = src.wac
         averageCostSnapshot = src.wac
-        
         src.stock = Math.max(0, src.stock - quantity)
-        
         const newDestWac = (dest.cumulative_volume + quantity) > 0
           ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
           : unitCost
-        
         dest.cumulative_volume += quantity
         dest.cumulative_value += quantity * unitCost
         dest.wac = newDestWac
         dest.stock += quantity
-      } 
-      else if (transactionType === 'SALE') {
-        const src = getRunning(sourceId)
-        
+      } else if (transactionType === 'SALE') {
+        const src = getSnap(sourceId)
         averageCostSnapshot = src.wac
         profitSnapshot = Math.round(quantity * (tx.sellingRate - averageCostSnapshot))
-        
         src.stock = Math.max(0, src.stock - quantity)
-      }
-      else if (transactionType === 'RETURN') {
+      } else if (transactionType === 'RETURN') {
         if (sourceId !== 'NONE' && sourceType === 'DRIVER') {
-          const src = getRunning(sourceId)
+          const src = getSnap(sourceId)
           src.stock = Math.max(0, src.stock - quantity)
         }
         if (destinationId !== 'NONE' && destinationType === 'DRIVER') {
-          const dest = getRunning(destinationId)
-          
+          const dest = getSnap(destinationId)
           const newWac = (dest.cumulative_volume + quantity) > 0
             ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
             : unitCost
-          
           dest.cumulative_volume += quantity
           dest.cumulative_value += quantity * unitCost
           dest.wac = newWac
           dest.stock += quantity
           averageCostSnapshot = dest.wac
         }
-      }
-      else if (transactionType === 'ADJUSTMENT') {
+      } else if (transactionType === 'ADJUSTMENT') {
         if (sourceId !== 'NONE') {
-          const src = getRunning(sourceId)
+          const src = getSnap(sourceId)
           unitCost = src.wac
           averageCostSnapshot = src.wac
           src.stock = Math.max(0, src.stock - quantity)
         } else if (destinationId !== 'NONE') {
-          const dest = getRunning(destinationId)
+          const dest = getSnap(destinationId)
           unitCost = dest.wac
           averageCostSnapshot = dest.wac
-          
           const newWac = (dest.cumulative_volume + quantity) > 0
             ? Math.round((dest.cumulative_value + quantity * unitCost) / (dest.cumulative_volume + quantity))
             : unitCost
-            
           dest.cumulative_volume += quantity
           dest.cumulative_value += quantity * unitCost
           dest.wac = newWac
@@ -1175,7 +1454,6 @@ export class TransactionService {
         }
       }
 
-      // If any snapshot value changed, write back to DB
       if (
         tx.unitCost !== unitCost ||
         tx.averageCostSnapshot !== averageCostSnapshot ||
@@ -1188,9 +1466,9 @@ export class TransactionService {
       }
     }
 
-    // 4. Update the read-through cache snapshots table for all locations
+    // 4. Update inventory cache snapshots for all affected locations
     const now = new Date().toISOString()
-    for (const [item, state] of Object.entries(runningState)) {
+    for (const [item, st] of Object.entries(runningState)) {
       const lastTx = await db
         .select({ id: transactions.id })
         .from(transactions)
@@ -1202,26 +1480,13 @@ export class TransactionService {
         )
         .orderBy(desc(transactions.transactionDate), desc(transactions.createdAt))
         .limit(1)
-
       const lastId = lastTx[0]?.id || 'NONE'
-
       await db
         .insert(inventoryTable)
-        .values({
-          item,
-          currentStock: state.stock,
-          weightedAverageCost: state.wac,
-          lastTransactionId: lastId,
-          updatedAt: now,
-        })
+        .values({ item, currentStock: st.stock, weightedAverageCost: st.wac, lastTransactionId: lastId, updatedAt: now })
         .onConflictDoUpdate({
           target: inventoryTable.item,
-          set: {
-            currentStock: state.stock,
-            weightedAverageCost: state.wac,
-            lastTransactionId: lastId,
-            updatedAt: now,
-          },
+          set: { currentStock: st.stock, weightedAverageCost: st.wac, lastTransactionId: lastId, updatedAt: now },
         })
     }
   }
@@ -1246,8 +1511,9 @@ export class TransactionService {
       transactionDate: string
       notes?: string
     },
-    updatedBy: string
-  ) {
+    updatedBy: string,
+    _overrideValidation = false
+  ): Promise<EditDeleteResult<any>> {
     if (data.quantity <= 0) throw new ValidationError('Quantity must be greater than zero')
     if (data.unitCost <= 0) throw new ValidationError('Unit cost must be greater than zero')
     if (!data.transactionDate) throw new ValidationError('Transaction date is required')
@@ -1259,25 +1525,24 @@ export class TransactionService {
     const supplier = await supplierRepo.getById(data.supplierId)
     if (!supplier) throw new SupplierNotFoundError(data.supplierId)
 
+    const editedTxMeta = { id, number: prior.transactionNumber || id, type: 'PURCHASE' }
+    const overrides = {
+      [id]: {
+        sourceId: data.supplierId,
+        destinationId: data.destinationLocation,
+        quantity: data.quantity,
+        unitCost: data.unitCost,
+        transactionDate: data.transactionDate,
+      }
+    }
+
+    // Two-stage accounting validation (always runs)
+    const conflicts = await this.runTwoStageValidation(overrides, editedTxMeta)
+    if (conflicts.length > 0) return { success: false as const, conflicts }
+
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
-      // Validate edit simulation before saving
-      try {
-        await this.simulateLedger({
-          [id]: {
-            sourceId: data.supplierId,
-            destinationId: data.destinationLocation,
-            quantity: data.quantity,
-            unitCost: data.unitCost,
-            transactionDate: data.transactionDate,
-          }
-        })
-      } catch (err: any) {
-        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
-      }
-
-      // Update in DB
       await db
         .update(transactions)
         .set({
@@ -1292,19 +1557,15 @@ export class TransactionService {
         })
         .where(eq(transactions.id, id))
 
-      // Trigger retroactive recomputations chronologically
       await this.recalculateLedgerInternal()
 
-      // Retrieve and return updated record
       const updated = await db
         .select()
         .from(transactions)
         .where(eq(transactions.id, id))
         .limit(1)
-
       const ledgerRecord = updated[0]
 
-      // Log update audit trail
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
         entityName: 'transactions',
@@ -1316,7 +1577,7 @@ export class TransactionService {
         user: updatedBy,
       })
 
-      return ledgerRecord
+      return { success: true as const, data: ledgerRecord }
     })
   }
 
@@ -1333,8 +1594,9 @@ export class TransactionService {
       transactionDate: string
       notes?: string
     },
-    updatedBy: string
-  ) {
+    updatedBy: string,
+    _overrideValidation = false
+  ): Promise<EditDeleteResult<any>> {
     if (data.quantity <= 0) throw new ValidationError('Quantity must be greater than zero')
     if (data.fromDriverId === data.toDriverId) {
       throw new InvalidTransferError('Cannot transfer fuel to the same driver')
@@ -1350,24 +1612,23 @@ export class TransactionService {
     if (!prior) throw new Error(`Transaction not found: ${id}`)
     if (prior.transactionType !== 'TRANSFER') throw new Error(`Transaction ${id} is not a transfer`)
 
+    const editedTxMeta = { id, number: prior.transactionNumber || id, type: 'TRANSFER' }
+    const overrides = {
+      [id]: {
+        sourceId: data.fromDriverId,
+        destinationId: data.toDriverId,
+        quantity: data.quantity,
+        transactionDate: data.transactionDate,
+      }
+    }
+
+    // Two-stage accounting validation (always runs)
+    const conflicts = await this.runTwoStageValidation(overrides, editedTxMeta)
+    if (conflicts.length > 0) return { success: false as const, conflicts }
+
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
-      // Validate edit simulation before saving
-      try {
-        await this.simulateLedger({
-          [id]: {
-            sourceId: data.fromDriverId,
-            destinationId: data.toDriverId,
-            quantity: data.quantity,
-            transactionDate: data.transactionDate,
-          }
-        })
-      } catch (err: any) {
-        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
-      }
-
-      // Update in DB
       await db
         .update(transactions)
         .set({
@@ -1382,19 +1643,15 @@ export class TransactionService {
         })
         .where(eq(transactions.id, id))
 
-      // Trigger retroactive recomputations chronologically
       await this.recalculateLedgerInternal()
 
-      // Retrieve and return updated record
       const updated = await db
         .select()
         .from(transactions)
         .where(eq(transactions.id, id))
         .limit(1)
-
       const ledgerRecord = updated[0]
 
-      // Log update audit trail
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
         entityName: 'transactions',
@@ -1406,7 +1663,7 @@ export class TransactionService {
         user: updatedBy,
       })
 
-      return ledgerRecord
+      return { success: true as const, data: ledgerRecord }
     })
   }
 
@@ -1424,8 +1681,9 @@ export class TransactionService {
       transactionDate: string
       notes?: string
     },
-    updatedBy: string
-  ) {
+    updatedBy: string,
+    _overrideValidation = false
+  ): Promise<EditDeleteResult<any>> {
     if (data.quantity <= 0) throw new ValidationError('Quantity must be greater than zero')
     if (data.sellingRate <= 0) throw new ValidationError('Selling rate must be greater than zero')
 
@@ -1440,31 +1698,27 @@ export class TransactionService {
     if (!prior) throw new Error(`Transaction not found: ${id}`)
     if (prior.transactionType !== 'SALE') throw new Error(`Transaction ${id} is not a sale`)
 
+    const editedTxMeta = { id, number: prior.transactionNumber || id, type: 'SALE' }
+    const overrides = {
+      [id]: {
+        sourceId: data.driverId,
+        destinationId: data.customerId,
+        quantity: data.quantity,
+        sellingRate: data.sellingRate,
+        transactionDate: data.transactionDate,
+      }
+    }
+
+    // Two-stage accounting validation (always runs)
+    const conflicts = await this.runTwoStageValidation(overrides, editedTxMeta)
+    if (conflicts.length > 0) return { success: false as const, conflicts }
+
     return runInTransaction(async () => {
       const now = new Date().toISOString()
 
-      // Validate edit simulation before saving
-      try {
-        await this.simulateLedger({
-          [id]: {
-            sourceId: data.driverId,
-            destinationId: data.customerId,
-            quantity: data.quantity,
-            sellingRate: data.sellingRate,
-            transactionDate: data.transactionDate,
-          }
-        })
-      } catch (err: any) {
-        throw new ValidationError(err.message || 'This edit affects later inventory movements. Prevent invalid inventory states.')
-      }
-
-      // WAC of driver at time of sale
       const sourceWac = await InventoryService.calculateWeightedAverageCost(data.driverId)
-
-      // Calculate profit snapshot
       const profit = Math.round(data.quantity * (data.sellingRate - sourceWac))
 
-      // Update in DB
       await db
         .update(transactions)
         .set({
@@ -1483,19 +1737,15 @@ export class TransactionService {
         })
         .where(eq(transactions.id, id))
 
-      // Trigger retroactive recomputations chronologically
       await this.recalculateLedgerInternal()
 
-      // Retrieve and return updated record
       const updated = await db
         .select()
         .from(transactions)
         .where(eq(transactions.id, id))
         .limit(1)
-
       const ledgerRecord = updated[0]
 
-      // Log update audit trail
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
         entityName: 'transactions',
@@ -1507,7 +1757,7 @@ export class TransactionService {
         user: updatedBy,
       })
 
-      return ledgerRecord
+      return { success: true as const, data: ledgerRecord }
     })
   }
 

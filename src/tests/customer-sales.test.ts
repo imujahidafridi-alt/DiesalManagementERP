@@ -292,10 +292,12 @@ describe('Customer Sales, Ledger & Profit Engine Integration Tests', () => {
         operator
       )
 
-      expect(updated.quantity).toBe(2000)
-      expect(updated.sellingRate).toBe(220)
-      expect(updated.averageCostSnapshot).toBe(120)
-      expect(updated.profitSnapshot).toBe(200000)
+      expect(updated.success).toBe(true)
+      if (!updated.success) throw new Error('updateSale returned conflicts')
+      expect(updated.data.quantity).toBe(2000)
+      expect(updated.data.sellingRate).toBe(220)
+      expect(updated.data.averageCostSnapshot).toBe(120)
+      expect(updated.data.profitSnapshot).toBe(200000)
 
       // Verify driver stock is reduced to 2,000L (4000L initial - 2000L updated sale)
       const driverStockAfter = await InventoryService.calculateInventory(activeDriverId)

@@ -9,6 +9,8 @@ import {
   useShortcutEffect,
   Combobox,
 } from '@/components/ui'
+import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
+import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -73,6 +75,11 @@ export default function SalesPage() {
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof SaleFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Conflict dialog state
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
+  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Traversals
   const refDate = useRef<HTMLInputElement>(null)
@@ -330,13 +337,15 @@ export default function SalesPage() {
       type: 'delete',
       confirmText: 'Soft Delete',
       onConfirm: async () => {
-        try {
-          await deleteSale(selectedTxRow.id)
-          addToast('Sale transaction soft-deleted successfully', 'success')
+        const result = await deleteSale(selectedTxRow.id)
+        if (result.success) {
+          addToast('Sale transaction soft-deleted and inventory recalculated.', 'success')
           setSelectedTxRow(null)
           loadData()
-        } catch (err: any) {
-          addToast(err.message || 'Error deleting sale', 'error')
+        } else {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleDelete)
+          setConflictOpen(true)
         }
       },
     })
@@ -393,14 +402,20 @@ export default function SalesPage() {
         driverId: formData.driverId,
         customerId: formData.customerId,
         quantity: parseFloat(formData.quantity),
-        sellingRate: Math.round(parseFloat(formData.sellingRateDollars) * 100), // in cents
+        sellingRate: Math.round(parseFloat(formData.sellingRateDollars) * 100),
         vehicleNumber: formData.vehicleNumber || undefined,
         transactionDate: formData.date,
         notes: formData.notes || undefined,
       }
 
       if (editId) {
-        await updateSale(editId, payload)
+        const result = await updateSale(editId, payload)
+        if (!result.success) {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleSubmit)
+          setConflictOpen(true)
+          return
+        }
         addToast('Customer sale invoice updated and recalculated successfully', 'success')
       } else {
         await createSale(payload)
@@ -490,6 +505,7 @@ export default function SalesPage() {
   }, [customers, drivers])
 
   return (
+    <>
     <div className="space-y-4">
       {/* 1. Toolbar */}
       <div className="flex items-center justify-between border-b pb-3 select-none bg-white p-3.5 rounded border shadow-subtle">
@@ -805,5 +821,17 @@ export default function SalesPage() {
         </div>
       </div>
     </div>
+
+    <InventoryConflictDialog
+      isOpen={conflictOpen}
+      conflicts={stockConflicts}
+      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
+      onValidateAgain={pendingRetry ? () => {
+        setConflictOpen(false)
+        setStockConflicts([])
+        pendingRetry()
+      } : undefined}
+    />
+    </>
   )
 }

@@ -8,6 +8,7 @@ import {
 } from '../database/repositories/interfaces'
 import { DriverStatement } from '../database/services/DriverService'
 import { CustomerStatement } from '../database/services/CustomerService'
+import type { EditDeleteResult } from '../database/services/TransactionService'
 import { SupplierStatement } from '../database/services/SupplierService'
 
 // Service-aligned typed IPC boundary contract mapping.
@@ -119,8 +120,9 @@ export interface IpcChannelMap {
         notes?: string
       },
       user: string,
+      overrideValidation?: boolean,
     ]
-    return: Transaction
+    return: EditDeleteResult<Transaction>
   }
   'transactions:createTransfer': {
     args: [
@@ -148,8 +150,9 @@ export interface IpcChannelMap {
         notes?: string
       },
       user: string,
+      overrideValidation?: boolean,
     ]
-    return: Transaction
+    return: EditDeleteResult<Transaction>
   }
   'transactions:createReturn': {
     args: [
@@ -208,10 +211,11 @@ export interface IpcChannelMap {
         notes?: string
       },
       user: string,
+      overrideValidation?: boolean,
     ]
-    return: Transaction
+    return: EditDeleteResult<Transaction>
   }
-  'transactions:deleteTransaction': { args: [id: string, user: string]; return: boolean }
+  'transactions:deleteTransaction': { args: [id: string, user: string, overrideValidation?: boolean]; return: EditDeleteResult<boolean> }
   'transactions:restoreTransaction': { args: [id: string, user: string]; return: boolean }
 
   // Inventory

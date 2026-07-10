@@ -9,6 +9,8 @@ import {
   DataGrid,
   useShortcutEffect,
 } from '@/components/ui'
+import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
+import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -72,6 +74,11 @@ export default function PurchasesPage() {
   const [formData, setFormData] = useState<PurchaseFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof PurchaseFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
+
+  // Conflict dialog state
+  const [conflictOpen, setConflictOpen] = useState(false)
+  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
+  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState('')
@@ -265,16 +272,14 @@ export default function PurchasesPage() {
       type: 'delete',
       confirmText: 'Soft Delete',
       onConfirm: async () => {
-        try {
-          const success = await deletePurchase(selectedTxRow.id)
-          if (success) {
-            addToast('Purchase transaction soft-deleted successfully', 'success')
-            setSelectedTxRow(null)
-          } else {
-            addToast('Deletion failed', 'error')
-          }
-        } catch (err: any) {
-          addToast(err.message || 'Error deleting purchase', 'error')
+        const result = await deletePurchase(selectedTxRow.id)
+        if (result.success) {
+          addToast('Purchase transaction soft-deleted and inventory recalculated.', 'success')
+          setSelectedTxRow(null)
+        } else {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleDelete)
+          setConflictOpen(true)
         }
       },
     })
@@ -337,18 +342,22 @@ export default function PurchasesPage() {
         supplierId: formData.supplierId,
         destinationLocation: formData.destinationLocation,
         quantity: parseFloat(formData.quantity),
-        unitCost: Math.round(parseFloat(formData.unitCostDollars) * 100), // in cents
+        unitCost: Math.round(parseFloat(formData.unitCostDollars) * 100),
         referenceNumber: formData.referenceNumber || undefined,
         transactionDate: formData.date,
         notes: formData.notes || undefined,
       }
 
       if (editId) {
-        // Updating existing purchase
-        await updatePurchase(editId, submissionData)
+        const result = await updatePurchase(editId, submissionData)
+        if (!result.success) {
+          setStockConflicts(result.conflicts)
+          setPendingRetry(() => handleSubmit)
+          setConflictOpen(true)
+          return
+        }
         addToast('Purchase record updated and retroactively recalculated', 'success')
       } else {
-        // Creating new purchase
         const res = await createPurchase(submissionData)
         addToast(`Purchase ${res.transactionNumber} created successfully`, 'success')
       }
@@ -435,6 +444,7 @@ export default function PurchasesPage() {
   }, [suppliers, drivers, symbol, unit])
 
   return (
+    <>
     <div className="space-y-4">
       {/* 1. Purchase Entry Toolbar */}
       <div className="flex items-center justify-between border-b pb-3 select-none bg-white p-3.5 rounded border shadow-subtle">
@@ -771,5 +781,17 @@ export default function PurchasesPage() {
         </div>
       </div>
     </div>
+
+    <InventoryConflictDialog
+      isOpen={conflictOpen}
+      conflicts={stockConflicts}
+      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
+      onValidateAgain={pendingRetry ? () => {
+        setConflictOpen(false)
+        setStockConflicts([])
+        pendingRetry()
+      } : undefined}
+    />
+    </>
   )
 }
