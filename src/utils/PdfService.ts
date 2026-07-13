@@ -60,6 +60,15 @@ export class PdfService {
         let totalVol = 0
         let totalAmt = 0
         let closingBal = 0
+        if (data.length > 0) {
+          const firstDate = data[0].transactionDate || ''
+          const lastDate = data[data.length - 1].transactionDate || ''
+          if (firstDate >= lastDate) {
+            closingBal = data[0].runningBalance || 0
+          } else {
+            closingBal = data[data.length - 1].runningBalance || 0
+          }
+        }
 
         body = data.map((row) => {
           const qty = row.quantity || 0
@@ -67,7 +76,6 @@ export class PdfService {
           const amount = qty * rate
           totalVol += qty
           totalAmt += amount
-          closingBal = row.runningBalance || 0
 
           return [
             row.transactionDate ? new Date(row.transactionDate).toLocaleDateString() : '',
@@ -112,6 +120,15 @@ export class PdfService {
         let totalQtyOut = 0
         let totalCost = 0
         let closingStock = 0
+        if (data.length > 0) {
+          const firstDate = data[0].transactionDate || ''
+          const lastDate = data[data.length - 1].transactionDate || ''
+          if (firstDate >= lastDate) {
+            closingStock = data[0].runningBalance || 0
+          } else {
+            closingStock = data[data.length - 1].runningBalance || 0
+          }
+        }
 
         body = data.map((row) => {
           const isQtyIn = row.transactionType === 'PURCHASE' || (row.transactionType === 'TRANSFER' && row.qtyIn > 0)
@@ -124,7 +141,6 @@ export class PdfService {
           totalQtyIn += qtyIn
           totalQtyOut += qtyOut
           totalCost += cost
-          closingStock = row.runningBalance || 0
 
           let typeLabel = row.transactionType
           if (row.transactionType === 'TRANSFER') {
@@ -812,7 +828,16 @@ export class PdfService {
       if (reportType === 'customer_ledger_detail') {
         const totalQty = data.reduce((acc, r) => acc + (r.quantity || 0), 0)
         const totalAmt = data.reduce((acc, r) => acc + ((r.quantity || 0) * (r.sellingRate || 0)), 0)
-        const finalBal = data.length > 0 ? (data[data.length - 1].runningBalance || 0) : 0
+        let finalBal = 0
+        if (data.length > 0) {
+          const firstDate = data[0].transactionDate || ''
+          const lastDate = data[data.length - 1].transactionDate || ''
+          if (firstDate >= lastDate) {
+            finalBal = data[0].runningBalance || 0
+          } else {
+            finalBal = data[data.length - 1].runningBalance || 0
+          }
+        }
         const openBal = options.openingBalance !== undefined ? options.openingBalance : 0
 
         items = [
@@ -830,7 +855,16 @@ export class PdfService {
           const isQtyIn = r.transactionType === 'PURCHASE' || (r.transactionType === 'TRANSFER' && r.qtyIn > 0)
           return acc + (!isQtyIn ? (r.quantity || 0) : 0)
         }, 0)
-        const finalBal = data.length > 0 ? (data[data.length - 1].runningBalance || 0) : 0
+        let finalBal = 0
+        if (data.length > 0) {
+          const firstDate = data[0].transactionDate || ''
+          const lastDate = data[data.length - 1].transactionDate || ''
+          if (firstDate >= lastDate) {
+            finalBal = data[0].runningBalance || 0
+          } else {
+            finalBal = data[data.length - 1].runningBalance || 0
+          }
+        }
         const openBal = options.openingBalance !== undefined ? options.openingBalance : 0
 
         items = [

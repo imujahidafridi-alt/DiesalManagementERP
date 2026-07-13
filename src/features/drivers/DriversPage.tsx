@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore, useUiStore } from '@/store'
 import Logo from '@/components/common/Logo'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
@@ -607,9 +608,9 @@ export default function DriversPage() {
       )}
 
       {/* Printable Statement Modal */}
-      {isStatementOpen && (
+      {isStatementOpen && createPortal(
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 print:bg-white print:inset-auto print:static">
-          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-7xl h-[85vh] flex flex-col p-6 space-y-4 overflow-hidden print:overflow-visible print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
+          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-7xl h-[85vh] flex flex-col p-6 space-y-4 overflow-hidden print:overflow-visible print:w-full print:h-auto print:border-none print:shadow-none print:p-0 animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header (Hidden on print) */}
             <div className="flex items-center justify-between border-b pb-2 print:hidden select-none">
               <div className="space-y-0.5">
@@ -644,7 +645,7 @@ export default function DriversPage() {
                   }`}
                 onClick={() => setStatementTab('inventory')}
               >
-                Inventory Statement (Stock Movement)
+                Stock Ledger (Detail)
               </button>
               <button
                 className={`px-4 py-2 text-xs font-bold border-b-2 transition-all ${statementTab === 'sales'
@@ -653,11 +654,11 @@ export default function DriversPage() {
                   }`}
                 onClick={() => setStatementTab('sales')}
               >
-                Sales Statement (Profit Margin)
+                Sales Log
               </button>
             </div>
 
-            {/* Date Filtering (Hidden on print) */}
+            {/* Date Filters */}
             <div className="flex items-end gap-3 bg-gray-50 border p-3 rounded print:hidden select-none">
               <div className="space-y-1 flex-1">
                 <label className="block text-[10px] font-bold text-gray-400 uppercase">From Date</label>
@@ -735,57 +736,57 @@ export default function DriversPage() {
                   <div className="grid grid-cols-5 gap-4 bg-gray-50 border p-3 rounded">
                     <div className="text-center border-r">
                       <span className="text-[9px] uppercase font-bold text-gray-400">Opening Stock</span>
-                      <p className="text-sm font-bold text-gray-800">
+                      <p className="text-xs font-bold text-gray-800">
                         {FormattingService.formatQuantity(statementReport.openingBalance)}
                       </p>
                     </div>
                     <div className="text-center border-r">
                       <span className="text-[9px] uppercase font-bold text-gray-400">Total Qty In</span>
-                      <p className="text-sm font-bold text-green-700">
-                        {FormattingService.formatQuantity(statementReport.totalQtyIn || 0)}
+                      <p className="text-xs font-bold text-emerald-600">
+                        {FormattingService.formatQuantity(statementReport.totalQtyIn)}
                       </p>
                     </div>
                     <div className="text-center border-r">
                       <span className="text-[9px] uppercase font-bold text-gray-400">Total Qty Out</span>
-                      <p className="text-sm font-bold text-purple-700">
-                        {FormattingService.formatQuantity(statementReport.totalQtyOut || 0)}
+                      <p className="text-xs font-bold text-rose-600">
+                        {FormattingService.formatQuantity(statementReport.totalQtyOut)}
                       </p>
                     </div>
                     <div className="text-center border-r">
                       <span className="text-[9px] uppercase font-bold text-gray-400">Closing Stock</span>
-                      <p className="text-sm font-bold text-gray-800">
+                      <p className="text-xs font-bold text-gray-900">
                         {FormattingService.formatQuantity(statementReport.closingBalance)}
                       </p>
                     </div>
                     <div className="text-center">
-                      <span className="text-[9px] uppercase font-bold text-gray-400">Average Buy Cost</span>
-                      <p className="text-sm font-bold text-blue-600">
-                        {statementReport.averageBuyCost > 0 ? FormattingService.formatRate(statementReport.averageBuyCost) : '-'}
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Avg Buy Cost</span>
+                      <p className="text-xs font-bold text-blue-650">
+                        {FormattingService.formatRate(statementReport.averageBuyCost)}
                       </p>
                     </div>
                   </div>
                 ) : (
                   <div className="grid grid-cols-4 gap-4 bg-gray-50 border p-3 rounded">
                     <div className="text-center border-r">
-                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Sold Volume</span>
-                      <p className="text-sm font-bold text-gray-800">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Sales Vol</span>
+                      <p className="text-xs font-bold text-gray-800">
                         {FormattingService.formatQuantity(salesSummary.totalVol)}
                       </p>
                     </div>
                     <div className="text-center border-r">
-                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Sales Amount</span>
-                      <p className="text-sm font-bold text-green-700">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Revenue</span>
+                      <p className="text-xs font-bold text-emerald-650">
                         {FormattingService.formatCurrency(salesSummary.totalSales)}
                       </p>
                     </div>
                     <div className="text-center border-r">
-                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Cost</span>
-                      <p className="text-sm font-bold text-purple-700">
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Delivered Buy Cost</span>
+                      <p className="text-xs font-bold text-slate-700">
                         {FormattingService.formatCurrency(salesSummary.totalCost)}
                       </p>
                     </div>
                     <div className="text-center">
-                      <span className="text-[9px] uppercase font-bold text-gray-400">Total Profit</span>
+                      <span className="text-[9px] uppercase font-bold text-gray-400">Net Margin Profit</span>
                       <p className="text-sm font-bold text-blue-600">
                         {FormattingService.formatCurrency(salesSummary.totalProfit)}
                       </p>
@@ -807,8 +808,10 @@ export default function DriversPage() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
+
     </div>
   )
 }

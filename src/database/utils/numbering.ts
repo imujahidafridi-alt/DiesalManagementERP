@@ -1,5 +1,5 @@
 import { transactions } from '../schema/schema'
-import { eq, and, isNull, desc } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { db } from '../db'
 import { PREFIXES } from '../constants'
 
@@ -39,7 +39,7 @@ export async function generateNextTransactionNumber(
   const result = await txClient
     .select()
     .from(transactions)
-    .where(and(eq(transactions.transactionType, type), isNull(transactions.deletedAt)))
+    .where(eq(transactions.transactionType, type))
     .orderBy(desc(transactions.transactionNumber))
     .limit(1)
 

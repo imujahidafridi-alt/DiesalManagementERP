@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useAppStore, useUiStore } from '@/store'
 import Logo from '@/components/common/Logo'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
@@ -547,9 +548,9 @@ export default function CustomersPage() {
       )}
 
       {/* Printable Statement Modal */}
-      {isStatementOpen && (
+      {isStatementOpen && createPortal(
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 print:bg-white print:inset-auto print:static">
-          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-7xl h-[85vh] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0">
+          <div className="bg-white border rounded-lg shadow-2xl w-[95vw] max-w-7xl h-[85vh] flex flex-col p-6 space-y-4 print:w-full print:h-auto print:border-none print:shadow-none print:p-0 animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b pb-2 print:hidden select-none">
               <div className="space-y-0.5">
@@ -605,10 +606,10 @@ export default function CustomersPage() {
             ) : statementReport ? (
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden space-y-4">
                 {/* Print Header */}
-                <div className="flex justify-between items-start w-full border-b border-gray-300 pb-4 mb-4 print:flex print:justify-between print:items-start print:w-full print:border-b print:border-gray-300 print:pb-4 print:mb-4">
+                <div className="hidden print:flex justify-between items-start w-full border-b border-gray-300 pb-4 mb-4 print:w-full print:border-b print:border-gray-300 print:pb-4 print:mb-4">
                   {/* Left Column: Brand Identity */}
                   <div className="flex flex-col print:flex print:flex-col">
-                    <Logo className="h-10 w-auto self-start print:h-10 print:w-auto print:self-start" />
+                     <Logo className="h-10 w-auto self-start print:h-10 print:w-auto print:self-start" />
                     <span className="text-[10px] font-black text-gray-600 mt-1.5 uppercase tracking-wider print:text-[10px] print:font-black print:text-gray-600 print:mt-1.5 print:uppercase print:tracking-wider">
                       Sahara Group General Transport
                     </span>
@@ -684,8 +685,10 @@ export default function CustomersPage() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
+
     </div>
   )
 }
