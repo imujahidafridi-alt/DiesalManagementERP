@@ -7,8 +7,8 @@ import { app } from 'electron'
 // Detect if running inside Electron Main process
 const isElectron = typeof process !== 'undefined' && process.versions && !!process.versions.electron
 
-let dbPath: string
-let sqlite: any
+export let dbPath: string
+export let sqlite: any
 
 const isTest = typeof process !== 'undefined' && process.env.NODE_ENV === 'test'
 
@@ -237,5 +237,3 @@ export async function runInTransaction<T>(action: () => Promise<T>): Promise<T> 
   })
 }
 
-export { sqlite }
-export { dbPath }

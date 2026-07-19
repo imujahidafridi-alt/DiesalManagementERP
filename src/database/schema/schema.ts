@@ -2,43 +2,65 @@ import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core
 import { sql } from 'drizzle-orm'
 
 // --- 1. Drivers Table ---
-export const drivers = sqliteTable('drivers', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  phone: text('phone'),
-  address: text('address'),
-  status: text('status').default('ACTIVE').notNull(), // ACTIVE, INACTIVE
-  notes: text('notes'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  deletedAt: text('deleted_at'),
-})
+export const drivers = sqliteTable(
+  'drivers',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    phone: text('phone'),
+    address: text('address'),
+    status: text('status').default('ACTIVE').notNull(), // ACTIVE, INACTIVE
+    notes: text('notes'),
+    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => ({
+    deletedIdx: index('drivers_deleted_idx').on(table.deletedAt),
+    statusIdx: index('drivers_status_idx').on(table.status),
+    nameIdx: index('drivers_name_idx').on(table.name),
+  })
+)
 
 // --- 2. Suppliers Table ---
-export const suppliers = sqliteTable('suppliers', {
-  id: text('id').primaryKey(),
-  companyName: text('company_name').notNull(),
-  contactPerson: text('contact_person'),
-  phone: text('phone'),
-  address: text('address'),
-  notes: text('notes'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  deletedAt: text('deleted_at'),
-})
+export const suppliers = sqliteTable(
+  'suppliers',
+  {
+    id: text('id').primaryKey(),
+    companyName: text('company_name').notNull(),
+    contactPerson: text('contact_person'),
+    phone: text('phone'),
+    address: text('address'),
+    notes: text('notes'),
+    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => ({
+    deletedIdx: index('suppliers_deleted_idx').on(table.deletedAt),
+    companyNameIdx: index('suppliers_company_name_idx').on(table.companyName),
+  })
+)
 
 // --- 3. Customers Table ---
-export const customers = sqliteTable('customers', {
-  id: text('id').primaryKey(),
-  companyName: text('company_name').notNull(),
-  contactPerson: text('contact_person'),
-  phone: text('phone'),
-  address: text('address'),
-  notes: text('notes'),
-  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
-  deletedAt: text('deleted_at'),
-})
+export const customers = sqliteTable(
+  'customers',
+  {
+    id: text('id').primaryKey(),
+    companyName: text('company_name').notNull(),
+    contactPerson: text('contact_person'),
+    phone: text('phone'),
+    address: text('address'),
+    notes: text('notes'),
+    createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    updatedAt: text('updated_at').default(sql`CURRENT_TIMESTAMP`).notNull(),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => ({
+    deletedIdx: index('customers_deleted_idx').on(table.deletedAt),
+    companyNameIdx: index('customers_company_name_idx').on(table.companyName),
+  })
+)
 
 
 // --- 5. Transactions Table (The Core Ledger) ---
@@ -79,6 +101,10 @@ export const transactions = sqliteTable(
     destIdx: index('tx_dest_idx').on(table.destinationId),
     dateIdx: index('tx_date_idx').on(table.transactionDate),
     typeIdx: index('tx_type_idx').on(table.transactionType),
+    deletedIdx: index('tx_deleted_idx').on(table.deletedAt),
+    createdAtIdx: index('tx_created_at_idx').on(table.createdAt),
+    refNumIdx: index('tx_ref_num_idx').on(table.referenceNumber),
+    keysetIdx: index('tx_keyset_idx').on(table.transactionDate, table.createdAt, table.id),
   })
 )
 
@@ -117,5 +143,6 @@ export const auditLogs = sqliteTable(
   },
   (table) => ({
     entityIdx: index('audit_entity_idx').on(table.entityName, table.entityId),
+    timestampIdx: index('audit_timestamp_idx').on(table.timestamp),
   })
 )

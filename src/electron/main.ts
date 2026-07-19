@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
 import { runMigrations } from '../database/migrator'
 import { DriverService } from '../database/services/DriverService'
@@ -11,6 +11,8 @@ import { ReportService } from '../database/services/ReportService'
 import { BackupService } from '../database/services/BackupService'
 import { SettingsService } from '../database/services/SettingsService'
 import { ImportService } from '../database/services/ImportService'
+import { DataGridService } from '../database/services/DataGridService'
+import { ExportService } from '../database/services/ExportService'
 import { initMainLogger, Logger } from '../utils/Logger'
 import fs from 'fs'
 
@@ -157,6 +159,35 @@ handleIpc('reports:getInventoryValuation', async (filters) => ReportService.getI
 handleIpc('reports:getTransactionHistory', async (filters) => ReportService.getTransactionHistory(filters))
 handleIpc('reports:getExceptionReport', async (filters) => ReportService.getExceptionReport(filters))
 handleIpc('reports:getAuditReport', async (filters) => ReportService.getAuditReport(filters))
+handleIpc('datagrid:fetchPage', async (payload) => DataGridService.fetchPage(payload))
+handleIpc('reports:getDashboardData', async () => ReportService.getDashboardData())
+handleIpc('reports:getPurchasesSummary', async () => ReportService.getPurchasesSummary())
+handleIpc('reports:getSalesSummary', async () => ReportService.getSalesSummary())
+handleIpc('reports:getTransfersSummary', async () => ReportService.getTransfersSummary())
+
+handleIpc('reports:exportCSV', async (gridId: string, search: string, filters: Record<string, any>, columns: any[]) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    title: 'Export CSV',
+    defaultPath: `export-${gridId}-${new Date().toISOString().split('T')[0]}.csv`,
+    filters: [{ name: 'CSV Files', extensions: ['csv'] }],
+  })
+  if (result.canceled || !result.filePath) return { canceled: true }
+  
+  await ExportService.exportCSV(result.filePath, gridId, search, filters, columns)
+  return { success: true, filePath: result.filePath }
+})
+
+handleIpc('reports:exportExcel', async (gridId: string, search: string, filters: Record<string, any>, columns: any[]) => {
+  const result = await dialog.showSaveDialog(mainWindow!, {
+    title: 'Export Excel Spreadsheet',
+    defaultPath: `export-${gridId}-${new Date().toISOString().split('T')[0]}.xls`,
+    filters: [{ name: 'Excel Files', extensions: ['xls', 'tsv'] }],
+  })
+  if (result.canceled || !result.filePath) return { canceled: true }
+  
+  await ExportService.exportExcel(result.filePath, gridId, search, filters, columns)
+  return { success: true, filePath: result.filePath }
+})
 
 // 9. Backups
 handleIpc('backup:create', async (manualReason?: string, maxCount?: number) => BackupService.createBackup(manualReason, maxCount))

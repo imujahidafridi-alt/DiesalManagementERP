@@ -1,4 +1,4 @@
-import { db, runInTransaction } from '../db'
+import { db, runInTransaction, sqlite } from '../db'
 import { transactions, inventory as inventoryTable, auditLogs } from '../schema/schema'
 import { TransactionRepository } from '../repositories/TransactionRepository'
 import { DriverRepository } from '../repositories/DriverRepository'
@@ -37,6 +37,8 @@ export interface AffectedTransaction {
   txDate: string
   quantity: number
   stockAfter: number
+  isFirstNegative?: boolean
+  isEditedTx?: boolean
 }
 
 export interface StockConflict {
@@ -50,6 +52,10 @@ export interface StockConflict {
   affectedTransactions: AffectedTransaction[]
   description: string
   suggestedFixes: string[]
+  stockBefore: number
+  stockAfter: number
+  wacBefore: number
+  wacAfter: number
 }
 
 export type EditDeleteResult<T> =
@@ -963,14 +969,68 @@ export class TransactionService {
   private static runLedgerPass(
     sortedTxs: any[],
     mode: 'strict' | 'rebuild',
-    _editedTxMeta?: { id: string; number: string; type: string }
+    editedTxMeta?: {
+      id: string
+      number: string
+      type: string
+      date?: string
+      createdAt?: string
+      txType?: string
+      quantity?: number
+      sourceId?: string
+      destinationId?: string
+      averageCostSnapshot?: number
+      unitCost?: number
+    }
   ): {
     state: Record<string, LocationState>
-    conflicts: Map<string, { shortage: number; affected: AffectedTransaction[] }>
+    conflicts: Map<
+      string,
+      {
+        shortage: number
+        affected: AffectedTransaction[]
+        stockBefore?: number
+        stockAfter?: number
+        wacBefore?: number
+        wacAfter?: number
+      }
+    >
   } {
     const state: Record<string, LocationState> = {}
-    // conflicts keyed by driverLocationId
-    const conflicts = new Map<string, { shortage: number; affected: AffectedTransaction[] }>()
+    const conflicts = new Map<
+      string,
+      {
+        shortage: number
+        affected: AffectedTransaction[]
+        stockBefore?: number
+        stockAfter?: number
+        wacBefore?: number
+        wacAfter?: number
+      }
+    >()
+
+    const stockBeforeEdit: Record<string, number> = {}
+    const stockAfterEdit: Record<string, number> = {}
+    const wacBeforeEdit: Record<string, number> = {}
+    const wacAfterEdit: Record<string, number> = {}
+
+    const firstShortageIndex = new Map<string, number>()
+    const runningStockHistory = new Map<string, number>() // key: txId + '_' + locationId
+
+    const typePriority: Record<string, number> = {
+      OPENING_BALANCE: 1, PURCHASE: 1, TRANSFER: 2, RETURN: 2, SALE: 3, ADJUSTMENT: 3,
+    }
+
+    const isAfterEdited = (tx: any): boolean => {
+      if (!editedTxMeta || !editedTxMeta.date || !editedTxMeta.createdAt) return false
+      if (tx.transactionDate !== editedTxMeta.date) {
+        return tx.transactionDate.localeCompare(editedTxMeta.date) > 0
+      }
+      const pA = typePriority[tx.transactionType] || 99
+      const pB = typePriority[editedTxMeta.txType || ''] || 99
+      if (pA !== pB) return pA > pB
+      return tx.createdAt.localeCompare(editedTxMeta.createdAt) > 0
+    }
 
     const getState = (locationId: string): LocationState => {
       if (!state[locationId]) {
@@ -982,28 +1042,39 @@ export class TransactionService {
     const recordConflict = (
       locationId: string,
       stockAfter: number,
-      tx: any
+      txIndex: number
     ) => {
-      const existing = conflicts.get(locationId)
-      const affEntry: AffectedTransaction = {
-        txId: tx.id,
-        txNumber: tx.transactionNumber || tx.id,
-        txType: tx.transactionType,
-        txDate: tx.transactionDate,
-        quantity: tx.quantity,
-        stockAfter,
+      if (!firstShortageIndex.has(locationId)) {
+        firstShortageIndex.set(locationId, txIndex)
       }
+      const existing = conflicts.get(locationId)
       if (existing) {
-        if (stockAfter < existing.shortage) existing.shortage = stockAfter
-        existing.affected.push(affEntry)
+        if (stockAfter < existing.shortage) {
+          existing.shortage = stockAfter
+        }
       } else {
-        conflicts.set(locationId, { shortage: stockAfter, affected: [affEntry] })
+        conflicts.set(locationId, { shortage: stockAfter, affected: [] })
       }
     }
 
-    for (const tx of sortedTxs) {
+    for (let i = 0; i < sortedTxs.length; i++) {
+      const tx = sortedTxs[i]
       const { transactionType, sourceType, sourceId, destinationType, destinationId, quantity } = tx
       let unitCost = tx.unitCost
+
+      // Capture stock before edit (if we are at the edited transaction)
+      if (editedTxMeta && editedTxMeta.type !== 'DELETE' && tx.id === editedTxMeta.id) {
+        const srcId = tx.sourceId
+        const destId = tx.destinationId
+        if (srcId && srcId !== 'NONE') {
+          stockBeforeEdit[srcId] = getState(srcId).stock
+          wacBeforeEdit[srcId] = getState(srcId).wac
+        }
+        if (destId && destId !== 'NONE') {
+          stockBeforeEdit[destId] = getState(destId).stock
+          wacBeforeEdit[destId] = getState(destId).wac
+        }
+      }
 
       if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
         const dest = getState(destinationId)
@@ -1021,7 +1092,7 @@ export class TransactionService {
         unitCost = src.wac
         const newSrcStock = src.stock - quantity
         if (mode === 'strict' && newSrcStock < 0) {
-          recordConflict(sourceId, newSrcStock, tx)
+          recordConflict(sourceId, newSrcStock, i)
           src.stock = newSrcStock  // keep going to find all conflicts
         } else {
           src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
@@ -1038,7 +1109,7 @@ export class TransactionService {
         const src = getState(sourceId)
         const newSrcStock = src.stock - quantity
         if (mode === 'strict' && newSrcStock < 0) {
-          recordConflict(sourceId, newSrcStock, tx)
+          recordConflict(sourceId, newSrcStock, i)
           src.stock = newSrcStock
         } else {
           src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
@@ -1049,7 +1120,7 @@ export class TransactionService {
           const src = getState(sourceId)
           const newSrcStock = src.stock - quantity
           if (mode === 'strict' && newSrcStock < 0) {
-            recordConflict(sourceId, newSrcStock, tx)
+            recordConflict(sourceId, newSrcStock, i)
             src.stock = newSrcStock
           } else {
             src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
@@ -1072,7 +1143,7 @@ export class TransactionService {
           unitCost = src.wac
           const newSrcStock = src.stock - quantity
           if (mode === 'strict' && newSrcStock < 0) {
-            recordConflict(sourceId, newSrcStock, tx)
+            recordConflict(sourceId, newSrcStock, i)
             src.stock = newSrcStock
           } else {
             src.stock = mode === 'rebuild' ? Math.max(0, newSrcStock) : newSrcStock
@@ -1089,6 +1160,159 @@ export class TransactionService {
           dest.stock += quantity
         }
       }
+
+      // Record running stock history
+      if (sourceId && sourceId !== 'NONE') {
+        runningStockHistory.set(`${tx.id}_${sourceId}`, getState(sourceId).stock)
+      }
+      if (destinationId && destinationId !== 'NONE') {
+        runningStockHistory.set(`${tx.id}_${destinationId}`, getState(destinationId).stock)
+      }
+
+      // Capture stock after edit (if we are at the edited transaction)
+      if (editedTxMeta && editedTxMeta.type !== 'DELETE' && tx.id === editedTxMeta.id) {
+        const srcId = tx.sourceId
+        const destId = tx.destinationId
+        if (srcId && srcId !== 'NONE') {
+          stockAfterEdit[srcId] = getState(srcId).stock
+          wacAfterEdit[srcId] = getState(srcId).wac
+        }
+        if (destId && destId !== 'NONE') {
+          stockAfterEdit[destId] = getState(destId).stock
+          wacAfterEdit[destId] = getState(destId).wac
+        }
+      }
+
+      // If DELETE and we have crossed the position of the deleted transaction
+      if (editedTxMeta && editedTxMeta.type === 'DELETE') {
+        const srcId = editedTxMeta.sourceId
+        const destId = editedTxMeta.destinationId
+
+        const captureDelete = (locId: string, isSource: boolean) => {
+          if (locId && locId !== 'NONE' && stockBeforeEdit[locId] === undefined) {
+            if (isAfterEdited(tx)) {
+              const currentStock = getState(locId).stock
+              const currentWac = getState(locId).wac
+              const qty = editedTxMeta.quantity || 0
+
+              stockAfterEdit[locId] = currentStock
+              wacAfterEdit[locId] = currentWac
+
+              if (isSource) {
+                stockBeforeEdit[locId] = currentStock - qty
+                wacBeforeEdit[locId] = currentWac
+              } else {
+                stockBeforeEdit[locId] = currentStock + qty
+                wacBeforeEdit[locId] = editedTxMeta.averageCostSnapshot || editedTxMeta.unitCost || currentWac
+              }
+            }
+          }
+        }
+        if (srcId) captureDelete(srcId, true)
+        if (destId) captureDelete(destId, false)
+      }
+    }
+
+    // Final check for DELETE positions if they were at the very end of the sorted list
+    if (editedTxMeta && editedTxMeta.type === 'DELETE') {
+      const srcId = editedTxMeta.sourceId
+      const destId = editedTxMeta.destinationId
+
+      const captureDelete = (locId: string, isSource: boolean) => {
+        if (locId && locId !== 'NONE' && stockBeforeEdit[locId] === undefined) {
+          const currentStock = getState(locId).stock
+          const currentWac = getState(locId).wac
+          const qty = editedTxMeta.quantity || 0
+
+          stockAfterEdit[locId] = currentStock
+          wacAfterEdit[locId] = currentWac
+
+          if (isSource) {
+            stockBeforeEdit[locId] = currentStock - qty
+            wacBeforeEdit[locId] = currentWac
+          } else {
+            stockBeforeEdit[locId] = currentStock + qty
+            wacBeforeEdit[locId] = editedTxMeta.averageCostSnapshot || editedTxMeta.unitCost || currentWac
+          }
+        }
+      }
+      if (srcId) captureDelete(srcId, true)
+      if (destId) captureDelete(destId, false)
+    }
+
+    // For each conflict, slice the sorted timeline from the edited transaction to the first negative stock level
+    let editIndex = -1
+    if (editedTxMeta) {
+      if (editedTxMeta.type !== 'DELETE') {
+        editIndex = sortedTxs.findIndex((t) => t.id === editedTxMeta.id)
+      } else {
+        editIndex = sortedTxs.findIndex((t) => isAfterEdited(t))
+        if (editIndex === -1) editIndex = sortedTxs.length
+      }
+    }
+
+    for (const [locationId, conflictData] of conflicts.entries()) {
+      const firstShortageIdx = firstShortageIndex.get(locationId) ?? sortedTxs.length
+      const affected: AffectedTransaction[] = []
+
+      const startIdx = Math.min(editIndex, firstShortageIdx)
+      const endIdx = Math.max(editIndex, firstShortageIdx)
+
+      for (let j = startIdx; j <= endIdx; j++) {
+        // If it is a DELETE and we reached the editIndex, insert the deleted placeholder
+        if (editedTxMeta && editedTxMeta.type === 'DELETE' && j === editIndex) {
+          const affectsThisLocation = editedTxMeta.sourceId === locationId || editedTxMeta.destinationId === locationId
+          if (affectsThisLocation) {
+            affected.push({
+              txId: editedTxMeta.id,
+              txNumber: editedTxMeta.number,
+              txType: editedTxMeta.txType || 'DELETE',
+              txDate: editedTxMeta.date || '',
+              quantity: editedTxMeta.quantity || 0,
+              stockAfter: stockBeforeEdit[locationId] ?? 0,
+              isEditedTx: true,
+            })
+          }
+        }
+
+        if (j < sortedTxs.length) {
+          const t = sortedTxs[j]
+          if (t.sourceId === locationId || t.destinationId === locationId) {
+            affected.push({
+              txId: t.id,
+              txNumber: t.transactionNumber || t.id,
+              txType: t.transactionType,
+              txDate: t.transactionDate,
+              quantity: t.quantity,
+              stockAfter: runningStockHistory.get(`${t.id}_${locationId}`) ?? 0,
+              isFirstNegative: (j === firstShortageIdx),
+              isEditedTx: (editedTxMeta && t.id === editedTxMeta.id),
+            })
+          }
+        }
+      }
+
+      // Edge case: if editIndex is at the end and no other transactions were after it
+      if (editedTxMeta && editedTxMeta.type === 'DELETE' && editIndex === sortedTxs.length && firstShortageIdx === sortedTxs.length) {
+        const affectsThisLocation = editedTxMeta.sourceId === locationId || editedTxMeta.destinationId === locationId
+        if (affectsThisLocation) {
+          affected.push({
+            txId: editedTxMeta.id,
+            txNumber: editedTxMeta.number,
+            txType: editedTxMeta.txType || 'DELETE',
+            txDate: editedTxMeta.date || '',
+            quantity: editedTxMeta.quantity || 0,
+            stockAfter: stockBeforeEdit[locationId] ?? 0,
+            isEditedTx: true,
+          })
+        }
+      }
+
+      conflictData.affected = affected
+      conflictData.stockBefore = stockBeforeEdit[locationId] ?? 0
+      conflictData.stockAfter = stockAfterEdit[locationId] ?? 0
+      conflictData.wacBefore = wacBeforeEdit[locationId] ?? 0
+      conflictData.wacAfter = wacAfterEdit[locationId] ?? 0
     }
 
     return { state, conflicts }
@@ -1124,6 +1348,29 @@ export class TransactionService {
       }
     }
 
+    // Load original transaction to enrich details
+    const origTx = activeTxs.find((t) => t.id === editedTxMeta.id) ||
+      simulatedTxs.find((t) => t.id === editedTxMeta.id) ||
+      (await db.select().from(transactions).where(eq(transactions.id, editedTxMeta.id)).limit(1))[0]
+
+    const enrichedMeta = origTx ? {
+      id: editedTxMeta.id,
+      number: editedTxMeta.number,
+      type: overrides[editedTxMeta.id] === null ? 'DELETE' : 'EDIT',
+      date: origTx.transactionDate,
+      createdAt: origTx.createdAt,
+      txType: origTx.transactionType,
+      quantity: origTx.quantity,
+      sourceId: origTx.sourceId,
+      destinationId: origTx.destinationId,
+      averageCostSnapshot: origTx.averageCostSnapshot,
+      unitCost: origTx.unitCost,
+    } : {
+      id: editedTxMeta.id,
+      number: editedTxMeta.number,
+      type: editedTxMeta.type,
+    }
+
     // 3. Apply overrides (null = delete, object = merge)
     const finalTxs: any[] = []
     for (const tx of simulatedTxs) {
@@ -1150,35 +1397,58 @@ export class TransactionService {
     })
 
     // 5. Run strict engine
-    const { conflicts } = this.runLedgerPass(finalTxs, 'strict', editedTxMeta)
+    const { conflicts } = this.runLedgerPass(finalTxs, 'strict', enrichedMeta)
     if (conflicts.size === 0) return []
 
     // 6. Enrich each conflict with driver name and suggested fixes
     const result: StockConflict[] = []
-    for (const [locationId, { shortage, affected }] of conflicts.entries()) {
+    for (const [locationId, conflictDetails] of conflicts.entries()) {
+      const { shortage, affected } = conflictDetails
       let driverName: string | undefined
       try {
         const driver = await driverRepo.getById(locationId)
         driverName = driver?.name
       } catch { /* ignore */ }
 
-      const firstAff = affected[0]
+      const firstNegative = affected.find((a) => a.isFirstNegative)
+      const firstNegativeDate = firstNegative?.txDate || 'the conflict date'
+      const requiredStock = Math.abs(shortage)
+
+      // Intelligent suggestions generation
+      const suggestedFixes: string[] = []
+      if (enrichedMeta.type === 'DELETE' && origTx) {
+        suggestedFixes.push(`Do not delete ${editedTxMeta.number}, or restore it to maintain required stock.`)
+      } else if (origTx) {
+        if (origTx.transactionType === 'SALE' || (origTx.transactionType === 'TRANSFER' && origTx.sourceId === locationId)) {
+          // Outflow - reducing helps
+          suggestedFixes.push(`Reduce edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} L (set to max ${(origTx.quantity - requiredStock).toFixed(0)} L).`)
+        } else if (origTx.transactionType === 'PURCHASE' || (origTx.transactionType === 'TRANSFER' && origTx.destinationId === locationId)) {
+          // Inflow - increasing helps
+          suggestedFixes.push(`Increase edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} L.`)
+        }
+      }
+
+      suggestedFixes.push(`Add a new Purchase or Transfer In of at least ${requiredStock.toFixed(0)} L for ${driverName || locationId} before ${firstNegativeDate}.`)
+
+      // Check for later outflows we can reduce
+      const laterOutflows = affected.filter(
+        (a) => !a.isEditedTx && (a.txType === 'SALE' || a.txType === 'TRANSFER') && a.quantity >= requiredStock
+      )
+      if (laterOutflows.length > 0) {
+        suggestedFixes.push(
+          ...laterOutflows.slice(0, 2).map(
+            (a) => `Delete or edit transaction ${a.txNumber} (${a.txType}, ${a.quantity} L) to free up stock.`
+          )
+        )
+      } else {
+        suggestedFixes.push(`Reduce one or more later sales/transfers totaling ${requiredStock.toFixed(0)} L before ${firstNegativeDate}.`)
+      }
 
       const description =
-        `${editedTxMeta.type === 'DELETE' ? 'Deleting' : 'Editing'} ` +
-        `${editedTxMeta.type} ${editedTxMeta.number} would cause ` +
+        `${enrichedMeta.type === 'DELETE' ? 'Deleting' : 'Editing'} ` +
+        `transaction ${editedTxMeta.number} would cause ` +
         `${driverName || locationId} to have ${shortage.toFixed(0)} L ` +
-        `before ${firstAff?.txNumber} on ${firstAff?.txDate}` +
-        (affected.length > 1 ? `. Also affects: ${affected.slice(1).map((a) => a.txNumber).join(', ')}` : '.')
-
-      const requiredStock = Math.abs(shortage)
-      const suggestedFixes: string[] = [
-        `Reduce the edited quantity to free up at least ${requiredStock.toFixed(0)} L`,
-        ...affected.slice(0, 3).map(
-          (a) => `Delete or reduce ${a.txNumber} (${a.txType}, ${a.quantity} L) before retrying`
-        ),
-        `Add a new Purchase of ≥${requiredStock.toFixed(0)} L before ${firstAff?.txDate}`,
-      ]
+        `after ${firstNegative?.txNumber || 'the conflict'} on ${firstNegativeDate}.`
 
       result.push({
         editedTxId: editedTxMeta.id,
@@ -1191,8 +1461,20 @@ export class TransactionService {
         affectedTransactions: affected,
         description,
         suggestedFixes,
+        stockBefore: conflictDetails.stockBefore || 0,
+        stockAfter: conflictDetails.stockAfter || 0,
+        wacBefore: conflictDetails.wacBefore || 0,
+        wacAfter: conflictDetails.wacAfter || 0,
       })
     }
+
+    // Sort multiple conflicts chronologically by first negative date
+    result.sort((a, b) => {
+      const dateA = a.affectedTransactions.find((t) => t.isFirstNegative)?.txDate || ''
+      const dateB = b.affectedTransactions.find((t) => t.isFirstNegative)?.txDate || ''
+      return dateA.localeCompare(dateB)
+    })
+
     return result
   }
 
@@ -1375,8 +1657,11 @@ export class TransactionService {
     // 2. Run core engine in rebuild mode (clips at 0, computes WAC)
     const { state: runningState } = this.runLedgerPass(activeTxs, 'rebuild')
 
-    // 3. Write WAC/profit snapshots back to each transaction record
-    //    Re-run in rebuild mode tracking snapshots per tx for DB writes
+    // 3. Write WAC/profit snapshots back to each transaction record using direct SQLite statements
+    const updateTxStmt = sqlite.prepare(
+      'UPDATE transactions SET unit_cost = ?, average_cost_snapshot = ?, profit_snapshot = ? WHERE id = ?'
+    )
+
     const snapState: Record<string, LocationState> = {}
     const getSnap = (locationId: string): LocationState => {
       if (!snapState[locationId])
@@ -1384,6 +1669,7 @@ export class TransactionService {
       return snapState[locationId]
     }
 
+    let yieldCount = 0
     for (const tx of activeTxs) {
       const { id, transactionType, sourceType, sourceId, destinationType, destinationId, quantity } = tx
       let unitCost = tx.unitCost
@@ -1459,15 +1745,27 @@ export class TransactionService {
         tx.averageCostSnapshot !== averageCostSnapshot ||
         tx.profitSnapshot !== profitSnapshot
       ) {
-        await db
-          .update(transactions)
-          .set({ unitCost, averageCostSnapshot, profitSnapshot })
-          .where(eq(transactions.id, id))
+        updateTxStmt.run(unitCost, averageCostSnapshot, profitSnapshot, id)
+      }
+
+      yieldCount++
+      if (yieldCount % 1000 === 0) {
+        await new Promise((resolve) => setImmediate(resolve))
       }
     }
 
-    // 4. Update inventory cache snapshots for all affected locations
+    // 4. Update inventory cache snapshots for all affected locations using compiled statement
     const now = new Date().toISOString()
+    const upsertInvStmt = sqlite.prepare(`
+      INSERT INTO inventory (item, current_stock, weighted_average_cost, last_transaction_id, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(item) DO UPDATE SET
+        current_stock = excluded.current_stock,
+        weighted_average_cost = excluded.weighted_average_cost,
+        last_transaction_id = excluded.last_transaction_id,
+        updated_at = excluded.updated_at
+    `)
+
     for (const [item, st] of Object.entries(runningState)) {
       const lastTx = await db
         .select({ id: transactions.id })
@@ -1481,13 +1779,7 @@ export class TransactionService {
         .orderBy(desc(transactions.transactionDate), desc(transactions.createdAt))
         .limit(1)
       const lastId = lastTx[0]?.id || 'NONE'
-      await db
-        .insert(inventoryTable)
-        .values({ item, currentStock: st.stock, weightedAverageCost: st.wac, lastTransactionId: lastId, updatedAt: now })
-        .onConflictDoUpdate({
-          target: inventoryTable.item,
-          set: { currentStock: st.stock, weightedAverageCost: st.wac, lastTransactionId: lastId, updatedAt: now },
-        })
+      upsertInvStmt.run(item, st.stock, st.wac, lastId, now)
     }
   }
 

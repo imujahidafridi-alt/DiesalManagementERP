@@ -15,6 +15,13 @@
       "when": 1783283112201,
       "tag": "0001_shiny_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784494467254,
+      "tag": "0002_narrow_ezekiel",
+      "breakpoints": true
     }
   ]
 }

@@ -101,10 +101,10 @@ interface AppState {
   loadingCustomers: boolean
   
   fetchPurchases: () => Promise<void>
-  fetchSuppliers: () => Promise<void>
-  fetchInventorySnapshots: () => Promise<void>
-  fetchDrivers: () => Promise<void>
-  fetchCustomers: () => Promise<void>
+  fetchSuppliers: (force?: boolean) => Promise<void>
+  fetchInventorySnapshots: (force?: boolean) => Promise<void>
+  fetchDrivers: (force?: boolean) => Promise<void>
+  fetchCustomers: (force?: boolean) => Promise<void>
   fetchSales: () => Promise<void>
 
   createDriver: (data: Omit<Driver, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>) => Promise<Driver>
@@ -264,7 +264,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchSuppliers: async () => {
+  fetchSuppliers: async (force = false) => {
+    if (get().suppliers.length > 0 && !force) return
     try {
       const s = await window.api.invoke('suppliers:list')
       set({ suppliers: s, dbConnected: true })
@@ -274,7 +275,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchInventorySnapshots: async () => {
+  fetchInventorySnapshots: async (force = false) => {
+    if (get().inventorySnapshots.length > 0 && !force) return
     try {
       const i = await window.api.invoke('inventory:listSnapshots')
       set({ inventorySnapshots: i, dbConnected: true })
@@ -284,7 +286,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchDrivers: async () => {
+  fetchDrivers: async (force = false) => {
+    if (get().drivers.length > 0 && !force) return
     set({ loadingDrivers: true })
     try {
       const d = await window.api.invoke('drivers:list')
@@ -297,8 +300,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-
-  fetchCustomers: async () => {
+  fetchCustomers: async (force = false) => {
+    if (get().customers.length > 0 && !force) return
     set({ loadingCustomers: true })
     try {
       const c = await window.api.invoke('customers:list')

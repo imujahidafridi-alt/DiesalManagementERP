@@ -254,6 +254,13 @@ export interface IpcChannelMap {
   'reports:getTransactionHistory': { args: [filters?: ReportFilters]; return: Transaction[] }
   'reports:getExceptionReport': { args: [filters?: ReportFilters]; return: any[] }
   'reports:getAuditReport': { args: [filters?: ReportFilters]; return: any[] }
+  'datagrid:fetchPage': { args: [payload: any]; return: { rows: any[]; totalCount: number; nextCursor?: string; hasMore: boolean } }
+  'reports:getDashboardData': { args: []; return: any }
+  'reports:getPurchasesSummary': { args: []; return: any }
+  'reports:getSalesSummary': { args: []; return: any }
+  'reports:getTransfersSummary': { args: []; return: any }
+  'reports:exportCSV': { args: [gridId: string, search: string, filters: Record<string, any>, columns: any[]]; return: { canceled?: boolean; success?: boolean; filePath?: string } }
+  'reports:exportExcel': { args: [gridId: string, search: string, filters: Record<string, any>, columns: any[]]; return: { canceled?: boolean; success?: boolean; filePath?: string } }
   
   'backup:create': { args: [manualReason?: string, maxCount?: number]; return: string }
   'backup:list': { args: []; return: any[] }

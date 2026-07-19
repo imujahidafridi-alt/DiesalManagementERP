@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Button, DataGrid, useShortcutEffect, Select } from '@/components/ui'
+import { Button, DataGrid, Select } from '@/components/ui'
 import { useUiStore } from '@/store'
 import { FormattingService } from '@/utils/FormattingService'
+import { usePaginatedGrid } from '@/hooks/usePaginatedGrid'
 import {
   Search,
   RefreshCw,
@@ -14,23 +15,19 @@ import type { GridColumn } from '@/components/ui/DataGrid'
 export default function AuditPage() {
   const { addToast } = useUiStore()
 
-  const [loading, setLoading] = useState(false)
-  const [auditLogs, setAuditLogs] = useState<any[]>([])
+  // Diff Modal State
+  const [selectedLog, setSelectedLog] = useState<any | null>(null)
+  const [isDiffOpen, setIsDiffOpen] = useState(false)
 
   // Filters State
-  const [searchQuery, setSearchQuery] = useState('')
   const [actionType, setActionType] = useState('')
   const [entityName, setEntityName] = useState('')
   const [datePreset, setDatePreset] = useState('this_month')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
-  // Diff Modal State
-  const [selectedLog, setSelectedLog] = useState<any | null>(null)
-  const [isDiffOpen, setIsDiffOpen] = useState(false)
-
-  // Trigger Date preset changes
-  useEffect(() => {
+  // Compute local dates from preset
+  const calculatedDates = useMemo(() => {
     const today = new Date()
     let start = ''
     let end = FormattingService.getLocalDateString(today)
@@ -57,54 +54,36 @@ export default function AuditPage() {
         start = ''
         end = ''
     }
-
-    setStartDate(start)
-    setEndDate(end)
+    return { startDate: start, endDate: end }
   }, [datePreset])
 
-  const loadLogs = async () => {
-    setLoading(true)
-    try {
-      const list = await window.api.invoke('audit:list')
-      setAuditLogs(list || [])
-    } catch (e: any) {
-      addToast(e.message || 'Failed to load audit logs', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // Sync dates presets
   useEffect(() => {
-    loadLogs()
-  }, [])
+    setStartDate(calculatedDates.startDate)
+    setEndDate(calculatedDates.endDate)
+  }, [calculatedDates])
 
-  useShortcutEffect('refresh', loadLogs)
+  // --- usePaginatedGrid Hook ---
+  const grid = usePaginatedGrid('audit', {
+    initialSortKey: 'createdAt',
+    initialSortDir: 'desc',
+    defaultFilters: {
+      action: actionType || undefined,
+      entityName: entityName || undefined,
+      startDate: calculatedDates.startDate || undefined,
+      endDate: calculatedDates.endDate || undefined,
+    },
+  })
 
-  // Filter logs locally for instant feedback
-  const filteredLogs = useMemo(() => {
-    return auditLogs.filter((log) => {
-      const q = searchQuery.toLowerCase().trim()
-
-      // Text search: matches operator, entity name, entity ID, or raw contents
-      const matchesSearch =
-        !q ||
-        log.user.toLowerCase().includes(q) ||
-        log.entityName.toLowerCase().includes(q) ||
-        log.entityId.toLowerCase().includes(q) ||
-        (log.previousData && log.previousData.toLowerCase().includes(q)) ||
-        (log.newData && log.newData.toLowerCase().includes(q))
-
-      const matchesAction = !actionType || log.action === actionType
-      const matchesEntity = !entityName || log.entityName === entityName
-
-      // Date Range Filter
-      const logDate = log.timestamp.split('T')[0]
-      const matchesStart = !startDate || logDate >= startDate
-      const matchesEnd = !endDate || logDate <= endDate
-
-      return matchesSearch && matchesAction && matchesEntity && matchesStart && matchesEnd
+  // Sync state filters to hook
+  useEffect(() => {
+    grid.handleFiltersChange({
+      action: actionType || undefined,
+      entityName: entityName || undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
     })
-  }, [auditLogs, searchQuery, actionType, entityName, startDate, endDate])
+  }, [actionType, entityName, startDate, endDate])
 
   const handleOpenDiff = (log: any) => {
     setSelectedLog(log)
@@ -115,72 +94,113 @@ export default function AuditPage() {
     window.print()
   }
 
-  const handleExportCSV = () => {
-    if (filteredLogs.length === 0) {
-      addToast('No data available to export', 'error')
-      return
+  const handleExportCSV = async () => {
+    try {
+      addToast('Preparing full CSV export...', 'info')
+      const filters = {
+        action: actionType || undefined,
+        entityName: entityName || undefined,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+      }
+      const columns = [
+        { key: 'timestamp', header: 'Timestamp' },
+        { key: 'user', header: 'Operator' },
+        { key: 'action', header: 'Action' },
+        { key: 'entityName', header: 'Module/Entity' },
+        { key: 'entityId', header: 'Entity UUID' },
+      ]
+      const res = await window.api.invoke('reports:exportCSV', 'audit', grid.search, filters, columns)
+      if (res?.success) {
+        addToast('CSV export saved successfully', 'success')
+      }
+    } catch (e: any) {
+      addToast(e.message || 'Export error', 'error')
     }
-    const headers = 'Timestamp,Operator,Action,Module/Entity,Entity UUID'
-    const rows = filteredLogs.map((log) => {
-      return `"${log.timestamp}","${log.user}","${log.action}","${log.entityName}","${log.entityId}"`
-    })
-    const csvContent = [headers, ...rows].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.setAttribute('href', url)
-    link.setAttribute('download', `audit_logs_${new Date().toISOString().split('T')[0]}.csv`)
-    link.click()
-    addToast('CSV export downloaded', 'success')
   }
 
   // Visual Diff JSON formatter helper
   const renderJsonHelper = (raw: string | null) => {
-    if (!raw) return <div className="text-gray-400 italic">Empty Record / Created new</div>
+    if (!raw) return <div className="text-gray-400 italic text-[11px]">Empty Record / Created new</div>
     try {
       const parsed = JSON.parse(raw)
       return (
-        <pre className="text-[10px] text-gray-700 bg-gray-50 p-2 border rounded font-mono overflow-auto max-h-80 whitespace-pre-wrap">
+        <pre className="text-[10px] font-mono leading-4 p-2 bg-gray-50 border rounded overflow-x-auto text-gray-700 select-text max-h-[300px]">
           {JSON.stringify(parsed, null, 2)}
         </pre>
       )
-    } catch {
-      return <pre className="text-[10px] text-gray-700 bg-gray-50 p-2 border rounded font-mono overflow-auto max-h-80 whitespace-pre-wrap">{raw}</pre>
+    } catch (e) {
+      return (
+        <pre className="text-[10px] font-mono leading-4 p-2 bg-gray-50 border rounded overflow-x-auto text-gray-700 select-text max-h-[300px]">
+          {raw}
+        </pre>
+      )
     }
   }
 
+  // Columns Configuration
   const columns: GridColumn<any>[] = [
-    { key: 'timestamp', header: 'Timestamp Date-Time', width: 145 },
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      width: 140,
+      render: (row) => (
+        <span className="font-mono text-slate-500 font-medium">
+          {new Date(row.timestamp).toLocaleString()}
+        </span>
+      ),
+    },
+    { key: 'user', header: 'Operator', width: 110 },
     {
       key: 'action',
       header: 'Action',
-      width: 95,
+      width: 90,
       render: (row) => (
-        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${row.action === 'CREATE' ? 'bg-green-50 text-green-700 border border-green-200' :
-          row.action === 'UPDATE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-            row.action === 'DELETE' ? 'bg-red-50 text-red-700 border border-red-200' :
-              'bg-purple-50 text-purple-700 border border-purple-200'
-          }`}>
+        <span
+          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+            row.action === 'CREATE'
+              ? 'bg-green-50 text-green-700 border border-green-200'
+              : row.action === 'UPDATE'
+              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+              : row.action === 'DELETE'
+              ? 'bg-red-50 text-red-700 border border-red-200'
+              : 'bg-purple-50 text-purple-700 border border-purple-200'
+          }`}
+        >
           {row.action}
         </span>
-      )
+      ),
     },
-    { key: 'entityName', header: 'Module/Entity', width: 110 },
-    { key: 'entityId', header: 'Entity UUID', width: 230 },
     {
-      key: 'actions',
-      header: 'Details',
-      width: 80,
+      key: 'entityName',
+      header: 'Module/Entity',
+      width: 110,
+      render: (row) => <span className="uppercase text-[10px] font-semibold">{row.entityName}</span>,
+    },
+    {
+      key: 'entityId',
+      header: 'Entity UUID (Short)',
+      width: 140,
+      render: (row) => (
+        <span className="font-mono text-gray-400 select-all" title={row.entityId}>
+          {row.entityId?.substring(0, 13)}...
+        </span>
+      ),
+    },
+    {
+      key: 'diff',
+      header: 'State Diff',
+      width: 90,
       render: (row) => (
         <button
           onClick={() => handleOpenDiff(row)}
-          className="flex items-center gap-1 px-1.5 py-0.5 border rounded text-[10px] font-bold text-gray-600 bg-gray-50 border-gray-200 hover:bg-gray-100 hover:text-gray-800 cursor-pointer"
+          className="flex items-center gap-1.5 px-2 py-0.5 bg-slate-50 border rounded text-[10px] font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-colors"
         >
           <Eye size={11} />
           <span>Diff</span>
         </button>
-      )
-    }
+      ),
+    },
   ]
 
   return (
@@ -203,8 +223,8 @@ export default function AuditPage() {
             <span>Print Trail</span>
           </Button>
 
-          <Button variant="outline" size="sm" onClick={loadLogs} className="gap-2">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          <Button variant="outline" size="sm" onClick={grid.reload} className="gap-2">
+            <RefreshCw size={13} className={grid.loading ? 'animate-spin' : ''} />
             <span>Refresh <kbd className="text-[9px] text-gray-400 font-mono ml-1">Ctrl+R</kbd></span>
           </Button>
         </div>
@@ -220,8 +240,8 @@ export default function AuditPage() {
               type="text"
               placeholder="Operator, UUID, content..."
               className="w-full pl-7 pr-2 py-1.5 text-[11px] bg-gray-50 border rounded focus:ring-1 focus:ring-blue-500 focus:outline-none select-text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={grid.search}
+              onChange={(e) => grid.setSearch(e.target.value)}
             />
           </div>
         </div>
@@ -277,7 +297,7 @@ export default function AuditPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              setSearchQuery('')
+              grid.setSearch('')
               setActionType('')
               setEntityName('')
               setDatePreset('this_month')
@@ -295,23 +315,30 @@ export default function AuditPage() {
         <div className="print-only hidden select-none p-4 border-b-2 mb-4">
           <h2 className="text-sm font-black uppercase text-gray-900">Sahara Diesels System Audit Trail</h2>
           <div className="text-[10px] text-gray-500 font-mono mt-1">
-            Print Date: {new Date().toLocaleString()} | Loaded Records: {filteredLogs.length}
+            Print Date: {new Date().toLocaleString()} | Loaded Records: {grid.totalCount}
           </div>
         </div>
 
-        {loading ? (
+        {grid.loading ? (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400 text-xs">
             <RefreshCw className="animate-spin mb-2" size={16} />
             Loading security logs...
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : grid.data.length === 0 ? (
           <div className="text-center text-xs text-gray-400 py-12 select-none border border-dashed rounded bg-gray-50">
             No audit records match your current filters.
           </div>
         ) : (
           <DataGrid
             columns={columns}
-            data={filteredLogs}
+            data={grid.data}
+            pagination={{
+              currentPage: grid.page,
+              pageSize: grid.pageSize,
+              totalCount: grid.totalCount,
+              onPageChange: grid.handlePageChange,
+              onPageSizeChange: grid.handlePageSizeChange,
+            }}
           />
         )}
       </div>

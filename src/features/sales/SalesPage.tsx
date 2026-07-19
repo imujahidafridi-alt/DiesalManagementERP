@@ -3,6 +3,7 @@ import { useAppStore, useUiStore } from '@/store'
 import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
+import { usePaginatedGrid } from '@/hooks/usePaginatedGrid'
 import {
   Button,
   DataGrid,
@@ -49,11 +50,9 @@ const emptyForm: SaleFormData = {
 
 export default function SalesPage() {
   const {
-    sales,
     customers,
     drivers,
     inventorySnapshots,
-    fetchSales,
     fetchCustomers,
     fetchDrivers,
     fetchInventorySnapshots,
@@ -65,16 +64,17 @@ export default function SalesPage() {
   } = useAppStore()
 
   const { addToast, showDialog } = useUiStore()
-
   const { currencySymbol: symbol, quantityAbbreviation: unit } = useBusinessSettings()
 
-  // Local UI states
+  // --- 2. Paginated Grid Hook ---
+  const grid = usePaginatedGrid('sales')
+
+  // --- 3. Form & Edit State ---
   const [isEditing, setIsEditing] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [formData, setFormData] = useState<SaleFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof SaleFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
 
   // Conflict dialog state
   const [conflictOpen, setConflictOpen] = useState(false)
@@ -90,37 +90,59 @@ export default function SalesPage() {
   const refVehicleNum = useRef<HTMLInputElement>(null)
   const refNotes = useRef<HTMLInputElement>(null)
 
-  // Load datasets
-  const loadData = async () => {
-    try {
-      await Promise.all([
-        fetchSales(),
-        fetchCustomers(),
-        fetchDrivers(),
-        fetchInventorySnapshots(),
-      ])
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
   const { activeLookupId, setActiveLookupId } = useUiStore()
 
   useEffect(() => {
-    loadData()
+    // Force cached lookups if empty
+    fetchCustomers()
+    fetchDrivers()
+    fetchInventorySnapshots()
   }, [])
 
+  // Lookup detection: direct query by transaction ID to open edit automatically
   useEffect(() => {
-    if (activeLookupId && sales.length > 0) {
-      const match = sales.find((s) => s.id === activeLookupId)
-      if (match) {
-        setSelectedTxRow(match)
-        setActiveLookupId(null)
+    const checkLookup = async () => {
+      if (activeLookupId) {
+        try {
+          const match = await window.api.invoke('transactions:getById', activeLookupId)
+          if (match) {
+            setSelectedTxRow(match)
+            handleEdit(match)
+            setActiveLookupId(null)
+          }
+        } catch (e) {
+          console.error('Error looking up transaction', e)
+        }
       }
     }
-  }, [activeLookupId, sales])
+    checkLookup()
+  }, [activeLookupId])
 
-  // --- Derived mappings ---
+  // --- 4. Sales Summary Stats from Database ---
+  const [summary, setSummary] = useState({
+    todayQty: 0,
+    monthQty: 0,
+    totalRevenue: 0,
+    totalProfit: 0,
+    avgPrice: 0,
+    avgProfit: 0,
+    currentStock: 0,
+  })
+
+  const loadSummary = async () => {
+    try {
+      const stats = await window.api.invoke('reports:getSalesSummary')
+      setSummary(stats)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadSummary()
+  }, [grid.data])
+
+  // --- 5. Derived mappings ---
   const customerOptions = useMemo(() => {
     return customers
       .filter((c) => {
@@ -149,7 +171,6 @@ export default function SalesPage() {
       }))
   }, [drivers])
 
-
   const driverStock = useMemo(() => {
     if (!formData.driverId) return 0
     const snapshot = inventorySnapshots.find((i) => i.item === formData.driverId)
@@ -175,75 +196,6 @@ export default function SalesPage() {
     const wacDollars = driverWacCents / 100
     return (qty * (rate - wacDollars)).toFixed(2)
   }, [formData.quantity, formData.sellingRateDollars, driverWacCents])
-
-  // Dashboard Summary calculations
-  const summaries = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('en-CA')
-    const currentMonthStr = new Date().toLocaleDateString('en-CA').slice(0, 7) // YYYY-MM
-
-    let todayVol = 0
-    let monthVol = 0
-    let totalRevenue = 0
-    let totalProfit = 0
-    let totalVol = 0
-
-    sales.forEach((s) => {
-      const rev = s.quantity * (s.sellingRate / 100)
-      const prof = s.profitSnapshot / 100
-
-      totalRevenue += rev
-      totalProfit += prof
-      totalVol += s.quantity
-
-      if (s.transactionDate === todayStr) {
-        todayVol += s.quantity
-      }
-
-      if (s.transactionDate.startsWith(currentMonthStr)) {
-        monthVol += s.quantity
-      }
-    })
-
-    const avgPrice = totalVol > 0 ? (totalRevenue / totalVol) : 0
-    const avgProfit = totalVol > 0 ? (totalProfit / totalVol) : 0
-
-    // Main bulk tank stock (depot)
-    const depot = inventorySnapshots.find((i) => i.item === 'Main Tank A')
-    const currentStock = depot ? depot.currentStock : 0
-
-    return {
-      todayQty: todayVol,
-      monthQty: monthVol,
-      totalRevenue,
-      totalProfit,
-      avgPrice,
-      avgProfit,
-      currentStock,
-    }
-  }, [sales, inventorySnapshots])
-
-  // Filtered sales log
-  const filteredSales = useMemo(() => {
-    let result = sales
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      result = sales.filter((s) => {
-        const customerName = customers.find((c) => c.id === s.destinationId)?.companyName || ''
-        const drvObj = drivers.find((d) => d.id === s.sourceId)
-        const driverName = drvObj ? drvObj.name : ''
-
-        return (
-          s.transactionNumber.toLowerCase().includes(query) ||
-          s.vehicleNumber?.toLowerCase().includes(query) ||
-          customerName.toLowerCase().includes(query) ||
-          driverName.toLowerCase().includes(query) ||
-          s.notes?.toLowerCase().includes(query) ||
-          s.transactionDate.includes(query)
-        )
-      })
-    }
-    return [...result].reverse()
-  }, [sales, searchQuery, customers, drivers])
 
   // --- Keyboard Traversal ---
   const handleKeyDown = (e: React.KeyboardEvent, field: keyof SaleFormData) => {
@@ -341,7 +293,8 @@ export default function SalesPage() {
         if (result.success) {
           addToast('Sale transaction soft-deleted and inventory recalculated.', 'success')
           setSelectedTxRow(null)
-          loadData()
+          grid.reload()
+          loadSummary()
         } else {
           setStockConflicts(result.conflicts)
           setPendingRetry(() => handleDelete)
@@ -426,10 +379,20 @@ export default function SalesPage() {
       setFormData(emptyForm)
       setEditId(null)
       setSelectedTxRow(null)
-      loadData()
+      grid.reload()
+      loadSummary()
     } catch (err: any) {
       addToast(err.message || 'Error processing sale', 'error')
     }
+  }
+
+  const handleRefresh = async () => {
+    grid.reload()
+    loadSummary()
+    await fetchCustomers(true)
+    await fetchDrivers(true)
+    await fetchInventorySnapshots(true)
+    addToast('Data refreshed successfully', 'success')
   }
 
   // Keyboard Shortcuts
@@ -440,7 +403,7 @@ export default function SalesPage() {
   useShortcutEffect('escape', () => {
     if (isEditing) handleCancel()
   })
-  useShortcutEffect('refresh', loadData)
+  useShortcutEffect('refresh', handleRefresh)
 
   useEffect(() => {
     const handleKeys = (e: KeyboardEvent) => {
@@ -554,8 +517,8 @@ export default function SalesPage() {
             <span>Delete <kbd className="text-[10px] font-mono opacity-60 ml-1">Del</kbd></span>
           </Button>
 
-          <Button variant="outline" size="sm" onClick={loadData} className="gap-2">
-            <RefreshCw size={13} />
+          <Button variant="outline" size="sm" onClick={handleRefresh} className="gap-2">
+            <RefreshCw size={13} className={grid.loading ? 'animate-spin' : ''} />
             <span>Refresh <kbd className="text-[10px] font-mono opacity-60 ml-1">Ctrl+R</kbd></span>
           </Button>
         </div>
@@ -579,8 +542,8 @@ export default function SalesPage() {
               type="text"
               placeholder="Search sales logs..."
               className="w-full pl-8 pr-3 py-1 bg-gray-50 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={grid.search}
+              onChange={(e) => grid.setSearch(e.target.value)}
             />
           </div>
         </div>
@@ -735,7 +698,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Today's Sales ({unit})</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.todayQty)}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summary.todayQty)}</p>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded">
             <ShoppingBag size={14} />
@@ -745,7 +708,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">This Month Volume</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.monthQty)}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summary.monthQty)}</p>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded">
             <ShoppingBag size={14} />
@@ -755,7 +718,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Total Revenue</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatCurrency(summaries.totalRevenue * 100)}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatCurrency(summary.totalRevenue * 100)}</p>
           </div>
           <div className="p-2 bg-green-50 text-green-600 rounded">
             <Coins size={14} />
@@ -765,7 +728,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Total Net Profit</span>
-            <p className="text-sm font-bold text-green-600">{FormattingService.formatCurrency(summaries.totalProfit * 100)}</p>
+            <p className="text-sm font-bold text-green-600">{FormattingService.formatCurrency(summary.totalProfit * 100)}</p>
           </div>
           <div className="p-2 bg-green-50 text-green-600 rounded">
             <TrendingUp size={14} />
@@ -775,7 +738,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Avg Selling Price</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatRate(Math.round(summaries.avgPrice * 100))}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatRate(Math.round(summary.avgPrice * 100))}</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
             <Coins size={14} />
@@ -785,7 +748,7 @@ export default function SalesPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Avg Profit / {unit}</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatRate(Math.round(summaries.avgProfit * 100))}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatRate(Math.round(summary.avgProfit * 100))}</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
             <Database size={14} />
@@ -800,7 +763,14 @@ export default function SalesPage() {
         </div>
         <DataGrid
           columns={columns}
-          data={filteredSales}
+          data={grid.data}
+          pagination={{
+            currentPage: grid.page,
+            pageSize: grid.pageSize,
+            totalCount: grid.totalCount,
+            onPageChange: grid.handlePageChange,
+            onPageSizeChange: grid.handlePageSizeChange,
+          }}
           onSelectionChange={(selected) => {
             if (selected.length > 0) {
               setSelectedTxRow(selected[0])

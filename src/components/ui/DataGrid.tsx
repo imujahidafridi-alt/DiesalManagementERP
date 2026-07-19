@@ -21,6 +21,13 @@ interface DataGridProps<T> {
   onSelectionChange?: (selectedRows: T[]) => void
   stickyFirstColumn?: boolean
   footerRow?: React.ReactNode
+  pagination?: {
+    currentPage: number
+    pageSize: number
+    totalCount: number
+    onPageChange: (page: number) => void
+    onPageSizeChange: (pageSize: number) => void
+  }
 }
 
 export default function DataGrid<T extends Record<string, any>>({
@@ -30,6 +37,7 @@ export default function DataGrid<T extends Record<string, any>>({
   onSelectionChange,
   stickyFirstColumn = true,
   footerRow,
+  pagination,
 }: DataGridProps<T>) {
   // --- 1. States ---
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colIndex: number } | null>(null)
@@ -43,8 +51,26 @@ export default function DataGrid<T extends Record<string, any>>({
   // Right-click context menu coords
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; rowIndex: number } | null>(null)
 
+  // Virtualization state
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(500)
+
   const gridRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
+
+  // Resize observer to track viewport height
+  useEffect(() => {
+    if (!gridRef.current) return
+    const currentRef = gridRef.current
+    setContainerHeight(currentRef.clientHeight || 500)
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerHeight(entry.contentRect.height || 500)
+      }
+    })
+    observer.observe(currentRef)
+    return () => observer.disconnect()
+  }, [])
 
   // Initialize column widths from props
   useEffect(() => {
@@ -163,14 +189,12 @@ export default function DataGrid<T extends Record<string, any>>({
         break
       case 'Tab':
         if (e.shiftKey) {
-          // Move left
           if (colIndex > 0) {
             setFocusedCell({ rowIndex, colIndex: colIndex - 1 })
           } else if (rowIndex > 0) {
             setFocusedCell({ rowIndex: rowIndex - 1, colIndex: columns.length - 1 })
           }
         } else {
-          // Move right
           if (colIndex < columns.length - 1) {
             setFocusedCell({ rowIndex, colIndex: colIndex + 1 })
           } else if (rowIndex < sortedData.length - 1) {
@@ -194,7 +218,6 @@ export default function DataGrid<T extends Record<string, any>>({
         break
       case 'c':
         if (e.ctrlKey || e.metaKey) {
-          // Copy active selection
           copySelection()
           e.preventDefault()
         }
@@ -205,14 +228,12 @@ export default function DataGrid<T extends Record<string, any>>({
   // --- 5. Clipboard Helpers ---
   const copySelection = () => {
     if (selectedRowIndices.size === 0 && focusedCell) {
-      // Copy single cell
       const row = sortedData[focusedCell.rowIndex]
       const col = columns[focusedCell.colIndex]
       navigator.clipboard.writeText(String(row[col.key] ?? ''))
       return
     }
 
-    // Copy selected rows as TSV
     const rows = Array.from(selectedRowIndices).map((idx) => sortedData[idx])
     const lines = rows.map((row) =>
       columns.map((col) => String(row[col.key] ?? '')).join('\t')
@@ -225,7 +246,6 @@ export default function DataGrid<T extends Record<string, any>>({
     setSelectedRowIndices((prev) => {
       const next = new Set(prev)
       if (e.shiftKey && focusedCell) {
-        // Range select
         next.clear()
         const start = Math.min(focusedCell.rowIndex, idx)
         const end = Math.max(focusedCell.rowIndex, idx)
@@ -238,7 +258,6 @@ export default function DataGrid<T extends Record<string, any>>({
         next.add(idx)
       }
       
-      // Bubble changes
       if (onSelectionChange) {
         onSelectionChange(Array.from(next).map((i) => sortedData[i]))
       }
@@ -254,7 +273,7 @@ export default function DataGrid<T extends Record<string, any>>({
         ...prev,
         [key]: Math.max(50, startWidth + deltaX),
       }))
-    };
+    }
 
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove)
@@ -272,157 +291,247 @@ export default function DataGrid<T extends Record<string, any>>({
     return () => window.removeEventListener('click', closeMenu)
   }, [])
 
+  // --- 8. Virtualization Computations ---
+  const rowHeight = 32 // Average row height in px
+  const buffer = 10    // Buffer rows to render above and below viewport
+
+  const { startIndex, endIndex, topSpacerHeight, bottomSpacerHeight } = useMemo(() => {
+    const start = Math.max(0, Math.floor(scrollTop / rowHeight) - buffer)
+    const end = Math.min(sortedData.length - 1, Math.floor((scrollTop + containerHeight) / rowHeight) + buffer)
+    const top = start * rowHeight
+    const bottom = Math.max(0, (sortedData.length - 1 - end) * rowHeight)
+    return {
+      startIndex: start,
+      endIndex: end,
+      topSpacerHeight: top,
+      bottomSpacerHeight: bottom,
+    }
+  }, [scrollTop, containerHeight, sortedData.length])
+
+  const visibleData = useMemo(() => {
+    if (sortedData.length === 0) return []
+    return sortedData.slice(startIndex, endIndex + 1)
+  }, [sortedData, startIndex, endIndex])
+
+  // Scroll focused row into viewport if needed
+  useEffect(() => {
+    if (focusedCell && gridRef.current) {
+      const container = gridRef.current
+      const rowTop = focusedCell.rowIndex * rowHeight
+      const rowBottom = rowTop + rowHeight
+      const viewTop = container.scrollTop
+      const viewBottom = viewTop + container.clientHeight
+
+      if (rowTop < viewTop) {
+        container.scrollTop = rowTop
+      } else if (rowBottom > viewBottom) {
+        container.scrollTop = rowBottom - container.clientHeight
+      }
+    }
+  }, [focusedCell])
+
   return (
-    <div
-      ref={gridRef}
-      onKeyDown={handleKeyDown}
-      tabIndex={0}
-      className="w-full border border-slate-200 rounded-none bg-white shadow-subtle overflow-auto max-h-[500px] md:max-h-full focus:outline-none focus:ring-2 focus:ring-blue-500/10"
-    >
-      <table className="w-full border-collapse table-fixed text-xs text-left">
-        {/* Table Headers */}
-        <thead className="sticky top-0 z-20 select-none border-b border-slate-950 bg-gradient-to-b from-slate-800 to-slate-900 text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
-          <tr>
-            {/* Index Checklist column */}
-            <th className="w-10 text-center px-1 text-slate-300 font-mono text-[9px] py-2 bg-gradient-to-b from-slate-800 to-slate-900">
-              #
-            </th>
-
-            {columns.map((col, cIdx) => {
-              const isSorted = sortKey === col.key
-              const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
-              const isCenterAlign = col.align === 'center'
-              return (
-                <th
-                  key={col.key}
-                  style={{ width: colWidths[col.key] || 120 }}
-                  className={clsx(
-                    'px-3 py-2 font-bold text-white relative align-middle group truncate bg-gradient-to-b from-slate-800 to-slate-900',
-                    isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
-                    stickyFirstColumn && cIdx === 0 && 'sticky left-0 z-10 bg-gradient-to-b from-slate-800 to-slate-900'
-                  )}
-                >
-                  <div className={clsx(
-                    'flex items-center gap-1.5',
-                    isRightAlign ? 'justify-end' : isCenterAlign ? 'justify-center' : 'justify-between'
-                  )}>
-                    <span
-                      className={clsx(col.sortable && 'cursor-pointer select-none hover:text-white/80')}
-                      onClick={() => col.sortable && toggleSort(col.key)}
-                    >
-                      {col.header}
-                    </span>
-                    {col.sortable && (
-                      <span className="text-white/60">
-                        {isSorted ? (
-                          sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
-                        ) : (
-                          <ArrowUpDown size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                        )}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Resizing handler */}
-                  <div
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      handleResizeStart(col.key, e.clientX, colWidths[col.key] || 120)
-                    }}
-                    className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 transition-colors"
-                  />
-                </th>
-              )
-            })}
-          </tr>
-        </thead>
-
-        {/* Table Body */}
-        <tbody>
-          {sortedData.length === 0 ? (
+    <div className="flex flex-col w-full border border-slate-200 bg-white shadow-subtle rounded-none overflow-hidden">
+      <div
+        ref={gridRef}
+        onKeyDown={handleKeyDown}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        tabIndex={0}
+        className="w-full overflow-auto max-h-[500px] md:max-h-full focus:outline-none focus:ring-2 focus:ring-blue-500/10"
+      >
+        <table className="w-full border-collapse table-fixed text-xs text-left">
+          <thead className="sticky top-0 z-20 select-none border-b border-slate-950 bg-gradient-to-b from-slate-800 to-slate-900 text-[10px] font-bold text-white uppercase tracking-wider shadow-sm">
             <tr>
-              <td colSpan={columns.length + 1} className="py-8 text-center text-gray-400">
-                No rows to display.
-              </td>
-            </tr>
-          ) : (
-            sortedData.map((row, rIdx) => {
-              const isRowSelected = selectedRowIndices.has(rIdx)
+              <th className="w-10 text-center px-1 text-slate-300 font-mono text-[9px] py-2 bg-gradient-to-b from-slate-800 to-slate-900">
+                #
+              </th>
 
-              return (
-                <tr
-                  key={row.id || rIdx}
-                  onClick={(e) => handleRowSelectToggle(rIdx, e)}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: rIdx })
-                  }}
-                  className={clsx(
-                    'border-b border-slate-100 transition-colors hover:bg-slate-50/60',
-                    isRowSelected ? 'bg-blue-50/20 font-medium text-slate-900' : 'even:bg-slate-50/10'
-                  )}
-                >
-                  {/* Row index indicator */}
-                  <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5 bg-slate-50/30">
-                    {rIdx + 1}
-                  </td>
-
-                  {columns.map((col, cIdx) => {
-                    const isFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colIndex === cIdx
-                    const isEditing = editingCell?.rowIndex === rIdx && editingCell?.colIndex === cIdx
-                    const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
-                    const isCenterAlign = col.align === 'center'
-                    
-                    return (
-                      <td
-                        key={col.key}
-                        onClick={() => setFocusedCell({ rowIndex: rIdx, colIndex: cIdx })}
-                        onDoubleClick={() => startEditing(rIdx, cIdx)}
-                        className={clsx(
-                          'px-3 py-1.5 truncate font-medium align-middle relative focus:outline-none text-[11px] text-slate-650',
-                          isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
-                          stickyFirstColumn && cIdx === 0 && (
-                            isRowSelected 
-                              ? 'sticky left-0 bg-blue-50/30 z-10' 
-                              : 'sticky left-0 bg-white z-10'
-                          ),
-                          {
-                            'ring-1 ring-blue-500 ring-inset': isFocused && !isEditing,
-                          }
-                        )}
+              {columns.map((col, cIdx) => {
+                const isSorted = sortKey === col.key
+                const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
+                const isCenterAlign = col.align === 'center'
+                return (
+                  <th
+                    key={col.key}
+                    style={{ width: colWidths[col.key] || 120 }}
+                    className={clsx(
+                      'px-3 py-2 font-bold text-white relative align-middle group truncate bg-gradient-to-b from-slate-800 to-slate-900',
+                      isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
+                      stickyFirstColumn && cIdx === 0 && 'sticky left-0 z-10 bg-gradient-to-b from-slate-800 to-slate-900'
+                    )}
+                  >
+                    <div className={clsx(
+                      'flex items-center gap-1.5',
+                      isRightAlign ? 'justify-end' : isCenterAlign ? 'justify-center' : 'justify-between'
+                    )}>
+                      <span
+                        className={clsx(col.sortable && 'cursor-pointer select-none hover:text-white/80')}
+                        onClick={() => col.sortable && toggleSort(col.key)}
                       >
-                        {isEditing ? (
-                          <input
-                            ref={editInputRef}
-                            type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={submitEdit}
-                            className="absolute inset-0 w-full h-full px-3 py-1 text-xs border-none focus:ring-1 focus:ring-blue-600 focus:outline-none bg-white select-text"
-                          />
-                        ) : col.render ? (
-                          col.render(row, rIdx)
-                        ) : col.type === 'currency' ? (
-                          FormattingService.formatCurrency(row[col.key] || 0)
-                        ) : col.type === 'number' ? (
-                          Number(row[col.key] || 0).toLocaleString()
-                        ) : (
-                          String(row[col.key] ?? '')
-                        )}
+                        {col.header}
+                      </span>
+                      {col.sortable && (
+                        <span className="text-white/60">
+                          {isSorted ? (
+                            sortDir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />
+                          ) : (
+                            <ArrowUpDown size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </span>
+                      )}
+                    </div>
+
+                    <div
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        handleResizeStart(col.key, e.clientX, colWidths[col.key] || 120)
+                      }}
+                      className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-white/20 transition-colors"
+                    />
+                  </th>
+                )
+              })}
+            </tr>
+          </thead>
+
+          <tbody>
+            {sortedData.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length + 1} className="py-8 text-center text-gray-400">
+                  No rows to display.
+                </td>
+              </tr>
+            ) : (
+              <>
+                {topSpacerHeight > 0 && (
+                  <tr>
+                    <td style={{ height: topSpacerHeight, padding: 0 }} colSpan={columns.length + 1} />
+                  </tr>
+                )}
+                {visibleData.map((row, index) => {
+                  const rIdx = startIndex + index
+                  const isRowSelected = selectedRowIndices.has(rIdx)
+
+                  return (
+                    <tr
+                      key={row.id || rIdx}
+                      onClick={(e) => handleRowSelectToggle(rIdx, e)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setContextMenu({ x: e.clientX, y: e.clientY, rowIndex: rIdx })
+                      }}
+                      className={clsx(
+                        'border-b border-slate-100 transition-colors hover:bg-slate-50/60',
+                        isRowSelected ? 'bg-blue-50/20 font-medium text-slate-900' : 'even:bg-slate-50/10'
+                      )}
+                    >
+                      <td className="px-1 text-center font-mono text-[9px] text-slate-400 py-1.5 bg-slate-50/30">
+                        {rIdx + 1}
                       </td>
-                    )
-                  })}
-                </tr>
-              )
-            })
+
+                      {columns.map((col, cIdx) => {
+                        const isFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colIndex === cIdx
+                        const isEditing = editingCell?.rowIndex === rIdx && editingCell?.colIndex === cIdx
+                        const isRightAlign = col.type === 'number' || col.type === 'currency' || col.align === 'right'
+                        const isCenterAlign = col.align === 'center'
+                        
+                        return (
+                          <td
+                            key={col.key}
+                            onClick={() => setFocusedCell({ rowIndex: rIdx, colIndex: cIdx })}
+                            onDoubleClick={() => startEditing(rIdx, cIdx)}
+                            className={clsx(
+                              'px-3 py-1.5 truncate font-medium align-middle relative focus:outline-none text-[11px] text-slate-650',
+                              isRightAlign ? 'text-right' : isCenterAlign ? 'text-center' : 'text-left',
+                              stickyFirstColumn && cIdx === 0 && (
+                                isRowSelected 
+                                  ? 'sticky left-0 bg-blue-50/30 z-10' 
+                                  : 'sticky left-0 bg-white z-10'
+                              ),
+                              {
+                                'ring-1 ring-blue-500 ring-inset': isFocused && !isEditing,
+                              }
+                            )}
+                          >
+                            {isEditing ? (
+                              <input
+                                ref={editInputRef}
+                                type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={submitEdit}
+                                className="absolute inset-0 w-full h-full px-3 py-1 text-xs border-none focus:ring-1 focus:ring-blue-600 focus:outline-none bg-white select-text"
+                              />
+                            ) : col.render ? (
+                              col.render(row, rIdx)
+                            ) : col.type === 'currency' ? (
+                              FormattingService.formatCurrency(row[col.key] || 0)
+                            ) : col.type === 'number' ? (
+                              Number(row[col.key] || 0).toLocaleString()
+                            ) : (
+                              String(row[col.key] ?? '')
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+                {bottomSpacerHeight > 0 && (
+                  <tr>
+                    <td style={{ height: bottomSpacerHeight, padding: 0 }} colSpan={columns.length + 1} />
+                  </tr>
+                )}
+              </>
+            )}
+          </tbody>
+          {footerRow && (
+            <tfoot className="sticky bottom-0 bg-gray-50 border-t z-10 font-bold select-none">
+              {footerRow}
+            </tfoot>
           )}
-        </tbody>
-        {footerRow && (
-          <tfoot className="sticky bottom-0 bg-gray-50 border-t z-10 font-bold select-none">
-            {footerRow}
-          </tfoot>
-        )}
-      </table>
+        </table>
+      </div>
+
+      {pagination && (
+        <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 bg-slate-50 select-none text-[11px] font-medium text-slate-500">
+          <div className="flex items-center gap-2">
+            <span>Show</span>
+            <select
+              value={pagination.pageSize}
+              onChange={(e) => pagination.onPageSizeChange(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-bold"
+            >
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+            </select>
+            <span>entries</span>
+          </div>
+          <div>
+            Showing {Math.min(pagination.totalCount, (pagination.currentPage - 1) * pagination.pageSize + 1)} to{' '}
+            {Math.min(pagination.totalCount, pagination.currentPage * pagination.pageSize)} of{' '}
+            {pagination.totalCount.toLocaleString()} entries
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => pagination.onPageChange(pagination.currentPage - 1)}
+              disabled={pagination.currentPage <= 1}
+              className="px-2 py-0.5 rounded border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:hover:border-slate-200 bg-white text-slate-700 font-bold active:bg-slate-100 transition-colors"
+            >
+              Prev
+            </button>
+            <span className="px-2 text-slate-700 font-extrabold">{pagination.currentPage}</span>
+            <button
+              onClick={() => pagination.onPageChange(pagination.currentPage + 1)}
+              disabled={pagination.currentPage * pagination.pageSize >= pagination.totalCount}
+              className="px-2 py-0.5 rounded border border-slate-200 hover:border-slate-300 disabled:opacity-40 disabled:hover:border-slate-200 bg-white text-slate-700 font-bold active:bg-slate-100 transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Grid Context Menu */}
       {contextMenu && (

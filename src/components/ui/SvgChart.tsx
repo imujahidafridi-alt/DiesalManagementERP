@@ -21,7 +21,10 @@ export const SvgChart: React.FC<SvgChartProps> = ({
   height = 200,
   color = '#22c55e', // default emerald-500
   secondaryColor = '#3b82f6', // default blue-500
-  valueFormatter = (val) => val.toLocaleString(),
+  valueFormatter = (val) => {
+    if (val === undefined || val === null || isNaN(Number(val))) return '0'
+    return Number(val).toLocaleString()
+  },
 }) => {
   if (!data || data.length === 0) {
     return (

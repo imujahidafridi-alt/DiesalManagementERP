@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import { usePaginatedGrid } from '@/hooks/usePaginatedGrid'
 import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
@@ -53,20 +54,17 @@ export default function TransfersPage() {
   } = useAppStore()
 
   const { addToast, showDialog } = useUiStore()
-
   const { quantityAbbreviation: unit } = useBusinessSettings()
 
-  // Transactions list (representing TRANSFERS)
-  const [allTransactions, setAllTransactions] = useState<any[]>([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
+  // --- 2. Paginated Grid Hook ---
+  const grid = usePaginatedGrid('transfers')
 
-  // Local UI states
+  // --- 3. Local UI states ---
   const [isEditing, setIsEditing] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [formData, setFormData] = useState<TransferFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof TransferFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
 
   // Conflict dialog state
   const [conflictOpen, setConflictOpen] = useState(false)
@@ -81,43 +79,54 @@ export default function TransfersPage() {
   const refQty = useRef<HTMLInputElement>(null)
   const refNotes = useRef<HTMLInputElement>(null)
 
-  // Load dependency options
-  const loadData = async () => {
-    setLoadingHistory(true)
-    try {
-      await Promise.all([
-        fetchDrivers(),
-        fetchInventorySnapshots(),
-      ])
-      const list = await window.api.invoke('transactions:list')
-      // Filter list to TRANSFERS only
-      const transfersOnly = list.filter((t) => t.transactionType === 'TRANSFER')
-      transfersOnly.reverse() // Sort ascending chronologically (1-2-3-n)
-      setAllTransactions(transfersOnly)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoadingHistory(false)
-    }
-  }
-
   const { activeLookupId, setActiveLookupId } = useUiStore()
 
   useEffect(() => {
-    loadData()
+    // Force cached lookups if empty
+    fetchDrivers()
+    fetchInventorySnapshots()
   }, [])
 
+  // Lookup detection: direct query by ID to open edit automatically
   useEffect(() => {
-    if (activeLookupId && allTransactions.length > 0) {
-      const match = allTransactions.find((t) => t.id === activeLookupId)
-      if (match) {
-        setSelectedTxRow(match)
-        setActiveLookupId(null)
+    const checkLookup = async () => {
+      if (activeLookupId) {
+        try {
+          const match = await window.api.invoke('transactions:getById', activeLookupId)
+          if (match) {
+            setSelectedTxRow(match)
+            handleEdit(match)
+            setActiveLookupId(null)
+          }
+        } catch (e) {
+          console.error('Error looking up transaction', e)
+        }
       }
     }
-  }, [activeLookupId, allTransactions])
+    checkLookup()
+  }, [activeLookupId])
 
-  // --- Derived calculations ---
+  // --- 4. Transfers Summary from Database ---
+  const [summary, setSummary] = useState({
+    todayVol: 0,
+    todayCount: 0,
+    avgVol: 0,
+  })
+
+  const loadSummary = async () => {
+    try {
+      const stats = await window.api.invoke('reports:getTransfersSummary')
+      setSummary(stats)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadSummary()
+  }, [grid.data])
+
+  // --- 5. Derived calculations ---
   const fromDriverOptions = useMemo(() => {
     return drivers
       .filter((d) => d.status === 'ACTIVE' && d.id !== formData.toDriverId)
@@ -151,53 +160,6 @@ export default function TransfersPage() {
     if (!formData.toDriverId) return 0
     return getDriverStock(formData.toDriverId)
   }, [formData.toDriverId, inventorySnapshots])
-
-  // Summaries
-  const summaries = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('en-CA')
-    let todayVol = 0
-    let totalVol = 0
-    let todayCount = 0
-
-    allTransactions.forEach((t) => {
-      totalVol += t.quantity
-      if (t.transactionDate === todayStr) {
-        todayVol += t.quantity
-        todayCount++
-      }
-    })
-
-    const avgVol = todayCount > 0 ? (todayVol / todayCount) : 0
-
-    return {
-      todayVol,
-      todayCount,
-      avgVol,
-    }
-  }, [allTransactions])
-
-  // Filtered list
-  const filteredTransfers = useMemo(() => {
-    if (!searchQuery.trim()) return allTransactions
-
-    const query = searchQuery.toLowerCase()
-    return allTransactions.filter((t) => {
-      // Find drivers directly using sourceId/destinationId
-      const srcDriver = drivers.find((d) => d.id === t.sourceId)
-      const destDriver = drivers.find((d) => d.id === t.destinationId)
-      const srcDriverName = srcDriver ? srcDriver.name : ''
-      const destDriverName = destDriver ? destDriver.name : ''
-
-      return (
-        t.transactionNumber.toLowerCase().includes(query) ||
-        t.referenceNumber?.toLowerCase().includes(query) ||
-        srcDriverName.toLowerCase().includes(query) ||
-        destDriverName.toLowerCase().includes(query) ||
-        t.notes?.toLowerCase().includes(query) ||
-        t.transactionDate.includes(query)
-      )
-    })
-  }, [allTransactions, searchQuery, drivers])
 
   // --- Keyboard Traversal ---
   const handleKeyDown = (e: React.KeyboardEvent, field: keyof TransferFormData) => {
@@ -262,7 +224,8 @@ export default function TransfersPage() {
         if (result.success) {
           addToast('Transfer deleted and inventory recalculated.', 'success')
           setSelectedTxRow(null)
-          loadData()
+          grid.reload()
+          loadSummary()
         } else {
           setStockConflicts(result.conflicts)
           setPendingRetry(() => handleDelete)
@@ -344,10 +307,19 @@ export default function TransfersPage() {
       setFormData(emptyForm)
       setEditId(null)
       setSelectedTxRow(null)
-      loadData()
+      grid.reload()
+      loadSummary()
     } catch (err: any) {
       addToast(err.message || 'Error processing transfer', 'error')
     }
+  }
+
+  const handleRefresh = async () => {
+    grid.reload()
+    loadSummary()
+    await fetchDrivers(true)
+    await fetchInventorySnapshots(true)
+    addToast('Data refreshed successfully', 'success')
   }
 
   // Short-cuts
@@ -358,7 +330,7 @@ export default function TransfersPage() {
   useShortcutEffect('escape', () => {
     if (isEditing) handleCancel()
   })
-  useShortcutEffect('refresh', loadData)
+  useShortcutEffect('refresh', handleRefresh)
 
   useEffect(() => {
     const handleKeys = (e: KeyboardEvent) => {
@@ -462,8 +434,8 @@ export default function TransfersPage() {
             <span>Delete <kbd className="text-[10px] font-mono opacity-60 ml-1">Del</kbd></span>
           </Button>
 
-          <Button variant="outline" size="sm" onClick={loadData} className="gap-2">
-            <RefreshCw size={13} className={loadingHistory ? 'animate-spin' : ''} />
+          <Button variant="outline" size="sm" onClick={handleRefresh} className="gap-2">
+            <RefreshCw size={13} className={grid.loading ? 'animate-spin' : ''} />
             <span>Refresh <kbd className="text-[10px] font-mono opacity-60 ml-1">Ctrl+R</kbd></span>
           </Button>
         </div>
@@ -474,8 +446,8 @@ export default function TransfersPage() {
             type="text"
             placeholder="Search transfers..."
             className="w-full pl-8 pr-3 py-1 bg-gray-50 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={grid.search}
+            onChange={(e) => grid.setSearch(e.target.value)}
           />
         </div>
       </div>
@@ -599,7 +571,7 @@ export default function TransfersPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Total Transferred Today</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.todayVol)}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summary.todayVol)}</p>
           </div>
           <div className="p-2 bg-blue-50 text-blue-600 rounded">
             <ArrowRightLeft size={14} />
@@ -609,7 +581,7 @@ export default function TransfersPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Transfers Completed Today</span>
-            <p className="text-sm font-bold text-gray-800">{summaries.todayCount} Operations</p>
+            <p className="text-sm font-bold text-gray-800">{summary.todayCount} Operations</p>
           </div>
           <div className="p-2 bg-green-50 text-green-600 rounded">
             <ArrowRightLeft size={14} />
@@ -619,7 +591,7 @@ export default function TransfersPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[9px] uppercase font-bold text-gray-400">Average Transfer Volume</span>
-            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summaries.avgVol)}</p>
+            <p className="text-sm font-bold text-gray-800">{FormattingService.formatQuantity(summary.avgVol)}</p>
           </div>
           <div className="p-2 bg-gray-50 text-gray-600 rounded">
             <ArrowRightLeft size={14} />
@@ -634,7 +606,14 @@ export default function TransfersPage() {
         </div>
         <DataGrid
           columns={columns}
-          data={filteredTransfers}
+          data={grid.data}
+          pagination={{
+            currentPage: grid.page,
+            pageSize: grid.pageSize,
+            totalCount: grid.totalCount,
+            onPageChange: grid.handlePageChange,
+            onPageSizeChange: grid.handlePageSizeChange,
+          }}
           onSelectionChange={(selected) => {
             if (selected.length > 0) {
               setSelectedTxRow(selected[0])

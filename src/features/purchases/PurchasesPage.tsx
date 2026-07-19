@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useAppStore, useUiStore } from '@/store'
+import { usePaginatedGrid } from '@/hooks/usePaginatedGrid'
 import { appConfig } from '@/config/appConfig'
 import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
@@ -49,10 +50,7 @@ const emptyForm: PurchaseFormData = {
 export default function PurchasesPage() {
   // --- 1. Zustand State & Actions ---
   const {
-    purchases,
     suppliers,
-    loadingPurchases,
-    fetchPurchases,
     fetchSuppliers,
     fetchInventorySnapshots,
     createPurchase,
@@ -65,10 +63,12 @@ export default function PurchasesPage() {
   } = useAppStore()
 
   const { addToast, showDialog } = useUiStore()
-
   const { currencySymbol: symbol, quantityAbbreviation: unit } = useBusinessSettings()
 
-  // --- 2. Form & Edit State ---
+  // --- 2. Paginated Grid Hook ---
+  const grid = usePaginatedGrid('purchases')
+
+  // --- 3. Form & Edit State ---
   const [isEditing, setIsEditing] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [formData, setFormData] = useState<PurchaseFormData>(emptyForm)
@@ -79,9 +79,6 @@ export default function PurchasesPage() {
   const [conflictOpen, setConflictOpen] = useState(false)
   const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
   const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
-
-  // Search filter
-  const [searchQuery, setSearchQuery] = useState('')
 
   // Input refs for keyboard tab/enter traversal
   const refDate = useRef<HTMLInputElement>(null)
@@ -95,23 +92,56 @@ export default function PurchasesPage() {
   const { activeLookupId, setActiveLookupId } = useUiStore()
 
   useEffect(() => {
-    fetchPurchases()
+    // Force cached lookups if empty
     fetchSuppliers()
     fetchInventorySnapshots()
     fetchDrivers()
   }, [])
 
+  // Lookup detection: direct DB query by ID to open edit form automatically
   useEffect(() => {
-    if (activeLookupId && purchases.length > 0) {
-      const match = purchases.find((p) => p.id === activeLookupId)
-      if (match) {
-        setSelectedTxRow(match)
-        setActiveLookupId(null)
+    const checkLookup = async () => {
+      if (activeLookupId) {
+        try {
+          const match = await window.api.invoke('transactions:getById', activeLookupId)
+          if (match) {
+            setSelectedTxRow(match)
+            handleEdit(match)
+            setActiveLookupId(null)
+          }
+        } catch (e) {
+          console.error('Error looking up transaction', e)
+        }
       }
     }
-  }, [activeLookupId, purchases])
+    checkLookup()
+  }, [activeLookupId])
 
-  // --- 3. UI Calculations (Derived) ---
+  // --- 4. Purchases Summary Stats from Database ---
+  const [summary, setSummary] = useState({
+    todayQty: 0,
+    todayTotal: 0,
+    monthQty: 0,
+    monthTotal: 0,
+    totalQty: 0,
+    avgRate: 0,
+    totalTransactions: 0,
+  })
+
+  const loadSummary = async () => {
+    try {
+      const stats = await window.api.invoke('reports:getPurchasesSummary')
+      setSummary(stats)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  useEffect(() => {
+    loadSummary()
+  }, [grid.data])
+
+  // --- 5. UI Calculations (Derived) ---
   const totalAmountDollars = useMemo(() => {
     const qty = parseFloat(formData.quantity) || 0
     const rate = parseFloat(formData.unitCostDollars) || 0
@@ -133,67 +163,6 @@ export default function PurchasesPage() {
         label: d.name,
       }))
   }, [drivers])
-
-  // Summary statistics
-  const summary = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('en-CA')
-    const currentMonthStr = new Date().toLocaleDateString('en-CA').slice(0, 7) // YYYY-MM
-
-    let todayVol = 0
-    let todayAmt = 0
-    let monthVol = 0
-    let monthAmt = 0
-    let totalVol = 0
-    let totalAmt = 0
-
-    purchases.forEach((p) => {
-      const pAmt = p.quantity * (p.unitCost / 100)
-      totalVol += p.quantity
-      totalAmt += pAmt
-
-      if (p.transactionDate === todayStr) {
-        todayVol += p.quantity
-        todayAmt += pAmt
-      }
-
-      if (p.transactionDate.startsWith(currentMonthStr)) {
-        monthVol += p.quantity
-        monthAmt += pAmt
-      }
-    })
-
-    const avgRate = totalVol > 0 ? (totalAmt / totalVol) : 0
-
-    return {
-      todayQty: todayVol,
-      todayTotal: todayAmt,
-      monthQty: monthVol,
-      monthTotal: monthAmt,
-      totalQty: totalVol,
-      avgRate: avgRate,
-      totalTransactions: purchases.length,
-    }
-  }, [purchases])
-
-  // Filtered recent purchases list
-  const filteredPurchases = useMemo(() => {
-    let result = purchases
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      result = purchases.filter((p) => {
-        const supplierName = suppliers.find((s) => s.id === p.sourceId)?.companyName || ''
-        return (
-          p.transactionNumber.toLowerCase().includes(query) ||
-          p.referenceNumber?.toLowerCase().includes(query) ||
-          supplierName.toLowerCase().includes(query) ||
-          p.notes?.toLowerCase().includes(query) ||
-          p.transactionDate.includes(query) ||
-          p.quantity.toString().includes(query)
-        )
-      })
-    }
-    return [...result].reverse()
-  }, [purchases, searchQuery, suppliers])
 
   // --- 4. Keyboard Traversal Handler ---
   const handleFormKeyDown = (e: React.KeyboardEvent, currentField: keyof PurchaseFormData) => {
@@ -276,6 +245,8 @@ export default function PurchasesPage() {
         if (result.success) {
           addToast('Purchase transaction soft-deleted and inventory recalculated.', 'success')
           setSelectedTxRow(null)
+          grid.reload()
+          loadSummary()
         } else {
           setStockConflicts(result.conflicts)
           setPendingRetry(() => handleDelete)
@@ -366,15 +337,18 @@ export default function PurchasesPage() {
       setFormData(emptyForm)
       setEditId(null)
       setSelectedTxRow(null)
+      grid.reload()
+      loadSummary()
     } catch (err: any) {
       addToast(err.message || 'Database error processing purchase', 'error')
     }
   }
 
   const handleRefresh = async () => {
-    await fetchPurchases()
-    await fetchInventorySnapshots()
-    await fetchSuppliers()
+    grid.reload()
+    loadSummary()
+    await fetchInventorySnapshots(true)
+    await fetchSuppliers(true)
     addToast('Data refreshed successfully', 'success')
   }
 
@@ -494,7 +468,7 @@ export default function PurchasesPage() {
           </Button>
 
           <Button variant="outline" size="sm" onClick={handleRefresh} className="gap-2">
-            <RefreshCw size={13} className={loadingPurchases ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={grid.loading ? 'animate-spin' : ''} />
             <span>Refresh <kbd className="text-[10px] font-mono opacity-60 ml-1">Ctrl+R</kbd></span>
           </Button>
         </div>
@@ -518,8 +492,8 @@ export default function PurchasesPage() {
               type="text"
               placeholder="Search purchases..."
               className="w-full pl-8 pr-3 py-1 bg-gray-50 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={grid.search}
+              onChange={(e) => grid.setSearch(e.target.value)}
             />
           </div>
         </div>
@@ -730,7 +704,14 @@ export default function PurchasesPage() {
         </div>
         <DataGrid
           columns={columns}
-          data={filteredPurchases}
+          data={grid.data}
+          pagination={{
+            currentPage: grid.page,
+            pageSize: grid.pageSize,
+            totalCount: grid.totalCount,
+            onPageChange: grid.handlePageChange,
+            onPageSizeChange: grid.handlePageSizeChange,
+          }}
           onSelectionChange={(selected) => {
             if (selected.length > 0) {
               setSelectedTxRow(selected[0])
@@ -739,7 +720,7 @@ export default function PurchasesPage() {
             }
           }}
           onCellEditSubmit={(rowIndex, key, value) => {
-            const row = filteredPurchases[rowIndex]
+            const row = grid.data[rowIndex]
             if (!row) return
 
             // Convert to dollar representation to match form layout edit helpers
@@ -762,6 +743,8 @@ export default function PurchasesPage() {
                 try {
                   await updatePurchase(row.id, mappedRow)
                   addToast('Inline cell changes committed successfully', 'success')
+                  grid.reload()
+                  loadSummary()
                 } catch (err: any) {
                   addToast(err.message || 'Cell edit error', 'error')
                 }

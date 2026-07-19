@@ -18,37 +18,34 @@ export default function DashboardPage() {
   const { quantityAbbreviation } = useBusinessSettings()
   const { addToast } = useUiStore()
   const {
-    fetchPurchases,
-    fetchSales,
     fetchInventorySnapshots,
     fetchDrivers,
     fetchCustomers,
     fetchSuppliers,
     suppliers,
-    inventorySnapshots,
-    drivers,
     customers,
   } = useAppStore()
 
   const [loading, setLoading] = useState(false)
-  const [allTransactions, setAllTransactions] = useState<any[]>([])
+  const [stats, setStats] = useState<any>(null)
+  const [chartData, setChartData] = useState<any>(null)
+  const [recentTransactions, setRecentTransactions] = useState<any[]>([])
 
   const loadDashboardData = async (isManual = false) => {
     setLoading(true)
     try {
-      // Load all workspace resources in parallel
+      // Load static caches first for UI lookup mapping
       await Promise.all([
-        fetchPurchases(),
-        fetchSales(),
         fetchInventorySnapshots(),
         fetchDrivers(),
         fetchCustomers(),
         fetchSuppliers(),
       ])
 
-      // Fetch all transactions to process local statistics
-      const txs = await window.api.invoke('transactions:list')
-      setAllTransactions(txs || [])
+      const res = await window.api.invoke('reports:getDashboardData')
+      setStats(res.stats)
+      setChartData(res.chartData)
+      setRecentTransactions(res.recentTransactions || [])
       if (isManual) {
         addToast('Dashboard data refreshed successfully', 'success')
       }
@@ -65,218 +62,9 @@ export default function DashboardPage() {
 
   useShortcutEffect('refresh', () => loadDashboardData(true))
 
-  // ----------------------------------------------------
-  // Local Business Math Calculations
-  // ----------------------------------------------------
-  const stats = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0]
-    const currentMonthStr = new Date().toISOString().substring(0, 7) // YYYY-MM
-
-    // 1. Inventory Valuation
-    let totalStock = 0
-    let totalValuation = 0 // in cents
-
-    for (const snap of inventorySnapshots) {
-      const isDriver = drivers.some((d) => d.id === snap.item)
-      if (isDriver) {
-        totalStock += snap.currentStock
-        totalValuation += Math.round(snap.currentStock * snap.weightedAverageCost)
-      }
-    }
-
-    // 2. Today's Indicators
-    let todayPurchasesVol = 0
-    let todaySalesVol = 0
-    let todayRevenueAmt = 0 // in cents
-    let todayProfitAmt = 0 // in cents
-
-    // 3. Monthly Indicators
-    let monthPurchasesVol = 0
-    let monthSalesVol = 0
-    let monthRevenueAmt = 0 // in cents
-    let monthProfitAmt = 0 // in cents
-
-    // 4. Aggregators for Top Customer & Driver
-    const customerSalesMap: Record<string, { name: string; profit: number }> = {}
-    const driverSalesMap: Record<string, { name: string; profit: number }> = {}
-
-    for (const tx of allTransactions) {
-      const isToday = tx.transactionDate === todayStr
-      const isThisMonth = tx.transactionDate.startsWith(currentMonthStr)
-      const txAmount = Math.round(tx.quantity * (tx.transactionType === 'SALE' ? tx.sellingRate : tx.unitCost))
-
-      if (tx.transactionType === 'PURCHASE') {
-        if (isToday) todayPurchasesVol += tx.quantity
-        if (isThisMonth) monthPurchasesVol += tx.quantity
-      }
-
-      if (tx.transactionType === 'SALE') {
-        if (isToday) {
-          todaySalesVol += tx.quantity
-          todayRevenueAmt += txAmount
-          todayProfitAmt += tx.profitSnapshot
-        }
-        if (isThisMonth) {
-          monthSalesVol += tx.quantity
-          monthRevenueAmt += txAmount
-          monthProfitAmt += tx.profitSnapshot
-        }
-
-        // Top Customer aggregations (using destinationId)
-        const custObj = customers.find((c) => c.id === tx.destinationId)
-        const custName = custObj ? custObj.companyName : 'Unknown Customer'
-        if (!customerSalesMap[tx.destinationId]) {
-          customerSalesMap[tx.destinationId] = { name: custName, profit: 0 }
-        }
-        customerSalesMap[tx.destinationId].profit += tx.profitSnapshot
-
-        // Top Driver aggregations (sourceId points to driver)
-        const drvObj = drivers.find((d) => d.id === tx.sourceId)
-        if (drvObj) {
-          if (!driverSalesMap[drvObj.id]) {
-            driverSalesMap[drvObj.id] = { name: drvObj.name, profit: 0 }
-          }
-          driverSalesMap[drvObj.id].profit += tx.profitSnapshot
-        }
-      }
-    }
-
-    // Solve Top Driver & Top Customer
-    let topCustomerName = 'N/A'
-    let topCustomerProfit = 0
-    Object.values(customerSalesMap).forEach((c) => {
-      if (c.profit > topCustomerProfit) {
-        topCustomerProfit = c.profit
-        topCustomerName = c.name
-      }
-    })
-
-    let topDriverName = 'N/A'
-    let topDriverProfit = 0
-    Object.values(driverSalesMap).forEach((d) => {
-      if (d.profit > topDriverProfit) {
-        topDriverProfit = d.profit
-        topDriverName = d.name
-      }
-    })
-
-    // 5. Recent Active Alerts
-    const alerts: { title: string; desc: string; type: 'warning' | 'info' }[] = []
-    
-
-
-    // Top driver stock holder info alert
-    let maxStock = -1
-    let maxStockDriverName = ''
-    drivers.forEach((d) => {
-      const snap = inventorySnapshots.find((s) => s.item === d.id)
-      const stock = snap ? snap.currentStock : 0
-      if (stock > maxStock) {
-        maxStock = stock
-        maxStockDriverName = d.name
-      }
-    })
-    if (maxStock > 0) {
-      alerts.push({
-        title: 'Top Driver Stock Holder',
-        desc: `Driver ${maxStockDriverName} currently holds the highest diesel stock: ${FormattingService.formatQuantity(maxStock)}.`,
-        type: 'info',
-      })
-    }
-
-
-
-    return {
-      totalStock,
-      totalValuation: totalValuation / 100, // dollars
-      todayPurchasesVol,
-      todaySalesVol,
-      todayRevenueAmt: todayRevenueAmt / 100,
-      todayProfitAmt: todayProfitAmt / 100,
-      monthPurchasesVol,
-      monthSalesVol,
-      monthRevenueAmt: monthRevenueAmt / 100,
-      monthProfitAmt: monthProfitAmt / 100,
-      topCustomerName,
-      topDriverName,
-      alerts,
-    }
-  }, [allTransactions, inventorySnapshots, drivers, customers])
-
-  // ----------------------------------------------------
-  // Chart Processing Data
-  // ----------------------------------------------------
-  const chartData = useMemo(() => {
-    // 1. Stock Distribution by Location
-    const stockDistribution = inventorySnapshots
-      .filter((snap) => snap.currentStock > 0)
-      .map((snap) => {
-        const drv = drivers.find((d) => d.id === snap.item)
-        let label = snap.item
-        if (drv) {
-          label = drv.name
-        }
-        return {
-          label,
-          value: snap.currentStock,
-        }
-      })
-
-    // 2. Daily Sales Volumes for the last 7 days
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      return d.toISOString().split('T')[0]
-    }).reverse()
-
-    const dailySales = last7Days.map((day) => {
-      const daySales = allTransactions
-        .filter((tx) => tx.transactionType === 'SALE' && tx.transactionDate === day)
-        .reduce((sum, tx) => sum + tx.quantity, 0)
-      return {
-        label: day.substring(5), // MM-DD
-        value: daySales,
-      }
-    })
-
-    // 3. Monthly Sales vs Purchases (Last 6 Months)
-    const last6Months = Array.from({ length: 6 }, (_, i) => {
-      const d = new Date()
-      d.setMonth(d.getMonth() - i)
-      return d.toISOString().substring(0, 7) // YYYY-MM
-    }).reverse()
-
-    const monthlyTrends = last6Months.map((mon) => {
-      const monSales = allTransactions
-        .filter((tx) => tx.transactionType === 'SALE' && tx.transactionDate.startsWith(mon))
-        .reduce((sum, tx) => sum + tx.quantity, 0)
-      const monPurchases = allTransactions
-        .filter((tx) => tx.transactionType === 'PURCHASE' && tx.transactionDate.startsWith(mon))
-        .reduce((sum, tx) => sum + tx.quantity, 0)
-
-      return {
-        label: mon, // YYYY-MM
-        value: monSales,
-        secondaryValue: monPurchases,
-      }
-    })
-
-    return {
-      stockDistribution,
-      dailySales,
-      monthlyTrends,
-    }
-  }, [allTransactions, inventorySnapshots, drivers])
-
-  // ----------------------------------------------------
-  // Recent Activity Columns & Logs (Last 10 transactions)
-  // ----------------------------------------------------
+  // Recent Activity logs mapped from raw recentTransactions
   const recentLogs = useMemo(() => {
-    const sorted = [...allTransactions]
-      .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || b.createdAt.localeCompare(a.createdAt))
-      .slice(0, 10)
-
-    return sorted.map((tx) => {
+    return recentTransactions.map((tx) => {
       let descText = ''
       if (tx.transactionType === 'PURCHASE') {
         const supObj = suppliers.find((s) => s.id === tx.sourceId)
@@ -299,7 +87,7 @@ export default function DashboardPage() {
         user: tx.createdBy,
       }
     })
-  }, [allTransactions, customers])
+  }, [recentTransactions, suppliers, customers])
 
   const columns: GridColumn<any>[] = [
     { key: 'time', header: 'Date', width: 95 },
@@ -326,6 +114,15 @@ export default function DashboardPage() {
     { key: 'details', header: 'Details Description', width: 340 },
     { key: 'user', header: 'User Operator', width: 120 },
   ]
+
+  if (!stats) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[70vh] text-slate-500 font-medium text-xs bg-slate-50/50 rounded-lg border border-dashed select-none">
+        <RefreshCw className="animate-spin mb-2 text-slate-400" size={20} />
+        <span>Loading Sahara Dashboard Insights...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -462,7 +259,7 @@ export default function DashboardPage() {
                 No alerts or stock warnings currently active.
               </div>
             ) : (
-              stats.alerts.map((al, idx) => (
+              stats.alerts.map((al: any, idx: number) => (
                 <div key={idx} className="flex gap-3 items-start border-b pb-3 last:border-0 last:pb-0 select-none">
                   <div
                     className={`p-1 rounded shrink-0 ${
