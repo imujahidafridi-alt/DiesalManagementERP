@@ -244,7 +244,18 @@ export default function CustomersPage() {
   }
 
   const handlePrint = () => {
-    window.print()
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    PdfService.generateReportPDF('customer_ledger_detail', statementReport.lines, {
+      startDate,
+      endDate,
+      companyName: 'Sahara Diesels',
+      title: 'Customer Ledger Statement',
+      partyName: statementReport.companyName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+      openingBalance: statementReport.openingBalance,
+      printOnly: true,
+    })
   }
 
   const handleExportPDF = () => {

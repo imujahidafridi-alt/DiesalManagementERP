@@ -16,6 +16,7 @@ export interface PdfServiceOptions {
   profitSummary?: any
   operator?: string
   openingBalance?: number
+  printOnly?: boolean
 }
 
 export class PdfService {
@@ -50,7 +51,7 @@ export class PdfService {
       case 'customer_ledger_detail': {
         headers = [
           { content: 'Date', styles: { halign: 'left' } },
-          { content: 'Voucher No', styles: { halign: 'left' } },
+          { content: 'Invoice No', styles: { halign: 'left' } },
           { content: 'Sold Volume', styles: { halign: 'right' } },
           { content: 'Price', styles: { halign: 'right' } },
           { content: 'Amount', styles: { halign: 'right' } },
@@ -999,8 +1000,28 @@ export class PdfService {
       doc.putTotalPages(totalPagesExp)
     }
 
-    const cleanTitle = reportTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_')
-    doc.save(`report_${cleanTitle}_${new Date().toISOString().split('T')[0]}.pdf`)
+    if (options.printOnly) {
+      doc.autoPrint();
+      const blob = doc.output('blob');
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            document.body.removeChild(iframe);
+            URL.revokeObjectURL(url);
+          } catch (e) {
+            console.error('Print iframe cleanup error:', e);
+          }
+        }, 10000);
+      };
+    } else {
+      const cleanTitle = reportTitle.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+      doc.save(`report_${cleanTitle}_${new Date().toISOString().split('T')[0]}.pdf`)
+    }
   }
 
   private static getReportTitle(type: string): string {

@@ -202,8 +202,35 @@ export default function DriversPage() {
     }
   }
 
-  const handlePrint = () => {
-    window.print()
+  const handlePrintInventory = () => {
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    PdfService.generateReportPDF('driver_inventory_ledger_detail', statementReport.lines, {
+      startDate,
+      endDate,
+      companyName: 'Sahara Diesels',
+      title: 'Driver Inventory Ledger Statement',
+      partyName: statementReport.driverName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+      openingBalance: statementReport.openingBalance,
+      printOnly: true,
+    })
+  }
+
+  const handlePrintSales = () => {
+    if (!statementReport || statementReport.lines.length === 0) return
+
+    const salesLines = statementReport.lines.filter((l: any) => l.transactionType === 'SALE')
+
+    PdfService.generateReportPDF('driver_sales_ledger_detail', salesLines, {
+      startDate,
+      endDate,
+      companyName: 'Sahara Diesels',
+      title: 'Driver Sales Ledger Statement',
+      partyName: statementReport.driverName,
+      operator: localStorage.getItem('diesel_user') || 'ERP Operator',
+      printOnly: true,
+    })
   }
 
   const handleExportInventoryPDF = () => {
@@ -618,9 +645,13 @@ export default function DriversPage() {
                 <p className="text-[10px] text-gray-400">Inspecting transaction history running balances for driver ledger auditing.</p>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handlePrint} className="gap-2">
+                <Button variant="outline" size="sm" onClick={handlePrintInventory} className="gap-2">
                   <Printer size={13} />
-                  <span>Print</span>
+                  <span>Print Inventory</span>
+                </Button>
+                <Button variant="outline" size="sm" onClick={handlePrintSales} className="gap-2">
+                  <Printer size={13} />
+                  <span>Print Sales</span>
                 </Button>
                 <Button variant="primary" size="sm" onClick={handleExportInventoryPDF} className="gap-2">
                   <Download size={13} />
