@@ -10,6 +10,7 @@ import { AuditService } from '../database/services/AuditService'
 import { ReportService } from '../database/services/ReportService'
 import { BackupService } from '../database/services/BackupService'
 import { SettingsService } from '../database/services/SettingsService'
+import { PinService } from '../database/services/PinService'
 import { ImportService } from '../database/services/ImportService'
 import { DataGridService } from '../database/services/DataGridService'
 import { ExportService } from '../database/services/ExportService'
@@ -172,7 +173,7 @@ handleIpc('reports:exportCSV', async (gridId: string, search: string, filters: R
     filters: [{ name: 'CSV Files', extensions: ['csv'] }],
   })
   if (result.canceled || !result.filePath) return { canceled: true }
-  
+
   await ExportService.exportCSV(result.filePath, gridId, search, filters, columns)
   return { success: true, filePath: result.filePath }
 })
@@ -184,7 +185,7 @@ handleIpc('reports:exportExcel', async (gridId: string, search: string, filters:
     filters: [{ name: 'Excel Files', extensions: ['xls', 'tsv'] }],
   })
   if (result.canceled || !result.filePath) return { canceled: true }
-  
+
   await ExportService.exportExcel(result.filePath, gridId, search, filters, columns)
   return { success: true, filePath: result.filePath }
 })
@@ -203,6 +204,16 @@ handleIpc('db:optimize', async () => BackupService.optimizeDb())
 // 11. Application Settings
 handleIpc('settings:get', async () => SettingsService.getSettings())
 handleIpc('settings:save', async (values: Record<string, string>, user: string) => SettingsService.saveSettings(values, user))
+
+// 12. Security & PIN Authentication (Supabase Auth Migration Ready)
+handleIpc('pin:hasPin', async () => PinService.hasPin())
+handleIpc('pin:create', async (pin: string, profile?: { name?: string; email?: string; role?: 'ADMIN' | 'OPERATOR' }, user?: string) => PinService.createPin(pin, profile, user))
+handleIpc('pin:verify', async (pin: string, actionName?: string, user?: string) => PinService.verifyPin(pin, actionName, user))
+handleIpc('pin:change', async (currentPin: string, newPin: string, user?: string) => PinService.changePin(currentPin, newPin, user))
+handleIpc('pin:getSessionStatus', async () => PinService.getSessionStatus())
+handleIpc('pin:lockSession', async () => PinService.lockSession())
+handleIpc('pin:unlockSession', async () => PinService.unlockSession())
+handleIpc('pin:setInactivityTimeout', async (minutes: number, user?: string) => PinService.setInactivityTimeout(minutes, user))
 
 // 12. Data Imports
 handleIpc('import:execute', async (entityType: string, rows: any[], user: string) => ImportService.importRecords(entityType, rows, user))

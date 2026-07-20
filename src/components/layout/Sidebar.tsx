@@ -17,6 +17,7 @@ import {
   History,
   Upload,
   Info,
+  Lock,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { appConfig } from '@/config/appConfig'
@@ -116,6 +117,21 @@ export default function Sidebar() {
             )
           })}
         </nav>
+      </div>
+
+      {/* Lock Application Button */}
+      <div className="p-2 px-3 border-t border-slate-800/80">
+        <button
+          onClick={() => useAppStore.getState().lockApp()}
+          className={clsx(
+            'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold text-slate-300 hover:text-white bg-slate-800/50 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-600 transition-all cursor-pointer shadow-sm',
+            sidebarCollapsed ? 'justify-center px-0' : 'justify-start'
+          )}
+          title="Lock Application Session"
+        >
+          <Lock size={16} className="text-amber-400 shrink-0" />
+          {!sidebarCollapsed && <span>Lock Application</span>}
+        </button>
       </div>
 
       {/* Footer / Status */}

@@ -5,6 +5,7 @@ import { useBusinessSettings } from '@/hooks/useBusinessSettings'
 import { FormattingService } from '@/utils/FormattingService'
 import { FileSpreadsheet, RefreshCw, Database, Plus, Save } from 'lucide-react'
 import type { GridColumn } from '@/components/ui/DataGrid'
+import PinConfirmModal from '@/components/ui/PinConfirmModal'
 
 interface DriverStockRow {
   id: string
@@ -138,6 +139,8 @@ export default function InventoryPage() {
     setTimeout(() => refDate.current?.focus(), 50)
   }
 
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+
   const handleSubmit = async () => {
     if (!isAdjusting) return
     const errors: Partial<Record<string, string>> = {}
@@ -165,6 +168,12 @@ export default function InventoryPage() {
       return
     }
 
+    // Trigger PIN modal confirmation
+    setPinModalOpen(true)
+  }
+
+  const executeAdjustmentAfterPin = async () => {
+    const qty = parseFloat(formData.quantity)
     try {
       await createAdjustment({
         locationId: formData.driverId,
@@ -178,7 +187,7 @@ export default function InventoryPage() {
       handleCancel()
       loadData()
     } catch (err: any) {
-      addToast(err.message || 'Error creating adjustment', 'error')
+      addToast(err.message || 'Failed to process inventory adjustment', 'error')
     }
   }
 
@@ -415,6 +424,15 @@ export default function InventoryPage() {
           data={driverStockRows}
         />
       </div>
+
+      <PinConfirmModal
+        isOpen={pinModalOpen}
+        title="Confirm Inventory Adjustment"
+        description={`Please enter your Security PIN to authorize ${formData.adjustmentType} adjustment of ${formData.quantity} ${unit} for driver.`}
+        actionName="INVENTORY_ADJUSTMENT"
+        onConfirm={executeAdjustmentAfterPin}
+        onClose={() => setPinModalOpen(false)}
+      />
     </div>
   )
 }

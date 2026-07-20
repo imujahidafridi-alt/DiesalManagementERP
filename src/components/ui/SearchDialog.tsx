@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUiStore, useAppStore } from '@/store'
+import { FormattingService } from '@/utils/FormattingService'
 import { Search, CreditCard, Users, Truck, ArrowLeftRight, Settings, ShoppingBag, FileText, FileDown } from 'lucide-react'
 import clsx from 'clsx'
 
@@ -135,7 +136,7 @@ export default function SearchDialog() {
 
         results.push({
           id: `tx-${t.id}`,
-          title: `${t.transactionType} ${t.transactionNumber} - Vol: ${t.quantity}L (Ref: ${t.referenceNumber || 'N/A'})`,
+          title: `${t.transactionType} ${t.transactionNumber} - Vol: ${FormattingService.formatVolume(t.quantity)} (Ref: ${t.referenceNumber || 'N/A'})`,
           category: 'Transaction',
           path: route,
           entityId: t.id,

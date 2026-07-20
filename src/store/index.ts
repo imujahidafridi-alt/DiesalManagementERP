@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { Transaction, Supplier, Inventory, Driver, Customer } from '@/database/repositories/interfaces'
 import type { EditDeleteResult } from '@/database/services/TransactionService'
+import type { AuthUser, AuthSession, PinVerifyResult } from '@/database/services/PinService'
 
 // --- 1. UI Store ---
 export interface Toast {
@@ -229,6 +230,19 @@ interface AppState {
   settings: Record<string, string>
   fetchSettings: () => Promise<void>
   saveSettings: (values: Record<string, string>) => Promise<boolean>
+
+  // Security & Authentication (Supabase Auth Ready)
+  isAppUnlocked: boolean
+  hasPin: boolean
+  authUser: AuthUser | null
+  inactivityTimeoutMinutes: number
+  checkPinStatus: () => Promise<void>
+  unlockApp: (pin: string) => Promise<PinVerifyResult>
+  lockApp: () => Promise<void>
+  createInitialPin: (pin: string, profile?: { name?: string; email?: string; role?: 'ADMIN' | 'OPERATOR' }) => Promise<{ success: boolean; error?: string }>
+  changePin: (currentPin: string, newPin: string) => Promise<{ success: boolean; error?: string }>
+  verifyPinForAction: (pin: string, actionName?: string) => Promise<PinVerifyResult>
+  setInactivityTimeoutMinutes: (minutes: number) => Promise<boolean>
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -237,6 +251,70 @@ export const useAppStore = create<AppState>((set, get) => ({
   dbConnected: true,
   setDbConnected: (connected) => set({ dbConnected: connected }),
   settings: {},
+
+  isAppUnlocked: false,
+  hasPin: true,
+  authUser: null,
+  inactivityTimeoutMinutes: 15,
+
+  checkPinStatus: async () => {
+    try {
+      const status: AuthSession = await window.api.invoke('pin:getSessionStatus')
+      set({
+        hasPin: status.hasPin,
+        isAppUnlocked: status.hasPin ? status.isUnlocked : true,
+        authUser: status.user,
+        inactivityTimeoutMinutes: status.inactivityTimeoutMinutes,
+      })
+    } catch (e) {
+      console.error('Failed to fetch PIN status', e)
+    }
+  },
+
+  unlockApp: async (pin: string) => {
+    const res: PinVerifyResult = await window.api.invoke('pin:verify', pin, 'UNLOCK_APP', get().currentOperator || undefined)
+    if (res.success) {
+      await window.api.invoke('pin:unlockSession')
+      set({
+        isAppUnlocked: true,
+        authUser: res.user || get().authUser,
+      })
+    }
+    return res
+  },
+
+  lockApp: async () => {
+    await window.api.invoke('pin:lockSession')
+    set({ isAppUnlocked: false })
+  },
+
+  createInitialPin: async (pin, profile) => {
+    const res = await window.api.invoke('pin:create', pin, profile, get().currentOperator || undefined)
+    if (res.success) {
+      set({
+        hasPin: true,
+        isAppUnlocked: true,
+        authUser: res.user || null,
+      })
+    }
+    return res
+  },
+
+  changePin: async (currentPin, newPin) => {
+    return window.api.invoke('pin:change', currentPin, newPin, get().currentOperator || undefined)
+  },
+
+  verifyPinForAction: async (pin, actionName) => {
+    return window.api.invoke('pin:verify', pin, actionName || 'SENSITIVE_ACTION', get().currentOperator || undefined)
+  },
+
+  setInactivityTimeoutMinutes: async (minutes) => {
+    const ok = await window.api.invoke('pin:setInactivityTimeout', minutes, get().currentOperator || undefined)
+    if (ok) {
+      set({ inactivityTimeoutMinutes: minutes })
+    }
+    return ok
+  },
 
   purchases: [],
   suppliers: [],

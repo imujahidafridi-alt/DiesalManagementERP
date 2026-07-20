@@ -49,6 +49,21 @@ export class FormattingService {
     }).format(quantity)
   }
 
+  static formatVolume(quantity: number, decimals?: number): string {
+    const { quantityAbbreviation, quantityPrecision } = this.getSettings()
+    const precision = decimals !== undefined ? decimals : quantityPrecision
+    const formattedVal = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
+    }).format(quantity)
+    return `${formattedVal} ${quantityAbbreviation}`
+  }
+
+  static getVolumeUnit(): string {
+    const { quantityAbbreviation } = this.getSettings()
+    return quantityAbbreviation
+  }
+
   static formatUnit(quantity: number): string {
     const { quantityAbbreviation } = this.getSettings()
     return `${quantity} ${quantityAbbreviation}`

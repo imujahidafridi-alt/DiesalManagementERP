@@ -12,18 +12,39 @@ import {
   Cpu,
   Keyboard,
   Info,
+  Lock,
+  Shield,
+  KeyRound,
 } from 'lucide-react'
+import PinConfirmModal from '@/components/ui/PinConfirmModal'
 
 export default function SettingsPage() {
   const { addToast, showDialog } = useUiStore()
-  const { settings, fetchSettings, saveSettings } = useAppStore()
+  const {
+    settings,
+    fetchSettings,
+    saveSettings,
+    changePin,
+    inactivityTimeoutMinutes,
+    setInactivityTimeoutMinutes,
+  } = useAppStore()
 
-  // Tab State: company, rules, backup, db, shortcuts
-  const [activeTab, setActiveTab] = useState<'company' | 'rules' | 'backup' | 'db' | 'shortcuts'>('company')
+  // Tab State: company, rules, security, backup, db, shortcuts
+  const [activeTab, setActiveTab] = useState<'company' | 'rules' | 'security' | 'backup' | 'db' | 'shortcuts'>('company')
 
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState<Record<string, string>>({})
   
+  // Change PIN form state
+  const [currentPin, setCurrentPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [confirmNewPin, setConfirmNewPin] = useState('')
+  const [pinChanging, setPinChanging] = useState(false)
+
+  // PIN Guard state for DB Restore
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+  const [pendingRestoreBackup, setPendingRestoreBackup] = useState<any | null>(null)
+
   // Backup list and diagnostics state
   const [backups, setBackups] = useState<any[]>([])
   const [integrityStatus, setIntegrityStatus] = useState<{ checked: boolean; ok: boolean; issues: string[] }>({
@@ -102,7 +123,47 @@ export default function SettingsPage() {
     })
   }
 
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!currentPin) {
+      addToast('Current PIN is required', 'error')
+      return
+    }
+    if (!/^\d{4,8}$/.test(newPin)) {
+      addToast('New PIN must be 4 to 8 numeric digits', 'error')
+      return
+    }
+    if (newPin !== confirmNewPin) {
+      addToast('New PIN and confirmation PIN do not match', 'error')
+      return
+    }
+
+    setPinChanging(true)
+    try {
+      const res = await changePin(currentPin, newPin)
+      if (res.success) {
+        addToast('Security PIN changed successfully', 'success')
+        setCurrentPin('')
+        setNewPin('')
+        setConfirmNewPin('')
+      } else {
+        addToast(res.error || 'Failed to change PIN', 'error')
+      }
+    } catch {
+      addToast('Error changing security PIN', 'error')
+    } finally {
+      setPinChanging(false)
+    }
+  }
+
   const handleRestoreBackup = (bk: any) => {
+    setPendingRestoreBackup(bk)
+    setPinModalOpen(true)
+  }
+
+  const executeRestoreAfterPin = () => {
+    if (!pendingRestoreBackup) return
+    const bk = pendingRestoreBackup
     showDialog({
       title: 'DANGER: RESTORE DATABASE',
       message: `Are you absolutely sure you want to restore the database to the snapshot from ${new Date(bk.createdAt).toLocaleString()}? All ledger entries created after this timestamp will be PERMANENTLY lost. The application will automatically relaunch on completion.`,
@@ -193,6 +254,16 @@ export default function SettingsPage() {
         >
           <Sliders size={13} />
           <span>Business & Inventory Rules</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('security')}
+          className={`px-4 py-2 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+            activeTab === 'security' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          <Shield size={13} />
+          <span>Security & PIN Auth</span>
         </button>
 
         <button
@@ -336,7 +407,113 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* TAB 3: Auto-Backup Preferences */}
+        {/* TAB 3: SECURITY & PIN AUTHENTICATION (Supabase Auth Migration Ready) */}
+        {activeTab === 'security' && (
+          <div className="space-y-6 max-w-2xl">
+            {/* 1. Change PIN Section */}
+            <div className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-gray-200">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                  <KeyRound size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900">Change Security PIN</h3>
+                  <p className="text-[11px] text-gray-500">Update operator security PIN for terminal lock & sensitive actions.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleChangePin} className="space-y-3 pt-1">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-700 block mb-1">Current Security PIN</label>
+                  <Input
+                    type="password"
+                    maxLength={8}
+                    required
+                    value={currentPin}
+                    onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))}
+                    placeholder="Enter current PIN"
+                    className="font-mono tracking-widest text-center"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">New Security PIN (4–8 digits)</label>
+                    <Input
+                      type="password"
+                      maxLength={8}
+                      required
+                      value={newPin}
+                      onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+                      placeholder="Enter new 4-8 digit PIN"
+                      className="font-mono tracking-widest text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Confirm New Security PIN</label>
+                    <Input
+                      type="password"
+                      maxLength={8}
+                      required
+                      value={confirmNewPin}
+                      onChange={(e) => setConfirmNewPin(e.target.value.replace(/\D/g, ''))}
+                      placeholder="Confirm new PIN"
+                      className="font-mono tracking-widest text-center"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={pinChanging}
+                    disabled={!currentPin || !newPin || newPin !== confirmNewPin}
+                    className="gap-2"
+                  >
+                    <ShieldCheck size={14} />
+                    <span>Update Security PIN</span>
+                  </Button>
+                </div>
+              </form>
+            </div>
+
+            {/* 2. Inactivity Timeout Section */}
+            <div className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-gray-200">
+                <div className="p-2 bg-amber-50 text-amber-600 rounded-lg">
+                  <Lock size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-900">Inactivity Auto-Lock Duration</h3>
+                  <p className="text-[11px] text-gray-500">Automatically lock the application terminal after period of operator inactivity.</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[11px] font-bold text-gray-700 block">Auto-Lock Inactivity Timeout</label>
+                <Select
+                  value={String(inactivityTimeoutMinutes)}
+                  onChange={(val: any) => setInactivityTimeoutMinutes(parseInt(typeof val === 'string' ? val : val?.target?.value || '0', 10))}
+                  options={[
+                    { value: '0', label: 'Disabled (Never auto-lock)' },
+                    { value: '5', label: '5 Minutes' },
+                    { value: '15', label: '15 Minutes (Recommended)' },
+                    { value: '30', label: '30 Minutes' },
+                    { value: '60', label: '60 Minutes' },
+                  ]}
+                />
+                <p className="text-[10px] text-gray-500 italic">
+                  Note: You can also manually lock the application at any time by clicking "Lock" in the top bar or sidebar.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 4: Auto-Backup Preferences */}
         {activeTab === 'backup' && (
           <div className="space-y-4 max-w-2xl">
             <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider border-b pb-2">Backup & Storage Configurations</h3>
@@ -524,6 +701,15 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <PinConfirmModal
+        isOpen={pinModalOpen}
+        title="Confirm Database Restore"
+        description="Please enter your Security PIN to authorize database snapshot restoration."
+        actionName="RESTORE_DATABASE"
+        onConfirm={executeRestoreAfterPin}
+        onClose={() => setPinModalOpen(false)}
+      />
     </div>
   )
 }

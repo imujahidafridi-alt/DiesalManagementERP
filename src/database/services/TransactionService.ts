@@ -1256,7 +1256,28 @@ export class TransactionService {
       const affected: AffectedTransaction[] = []
 
       const startIdx = Math.min(editIndex, firstShortageIdx)
-      const endIdx = Math.max(editIndex, firstShortageIdx)
+
+      // Continue timeline past first shortage until inventory becomes valid again (stock >= 0 after shortage) or end of sorted list
+      let endIdx = Math.max(editIndex, firstShortageIdx)
+      let foundNegative = false
+      for (let j = startIdx; j < sortedTxs.length; j++) {
+        const t = sortedTxs[j]
+        const affectsThisLocation = t.sourceId === locationId || t.destinationId === locationId || (editedTxMeta && editedTxMeta.type === 'DELETE' && j === editIndex)
+        if (!affectsThisLocation) continue
+
+        const stock = runningStockHistory.get(`${t.id}_${locationId}`) ?? (j === editIndex ? stockAfterEdit[locationId] : 0)
+        if (j >= firstShortageIdx) {
+          if (stock < 0) {
+            foundNegative = true
+            endIdx = j
+          } else if (foundNegative && stock >= 0) {
+            endIdx = j
+            break // Stock recovered to valid! Stop chain analysis here
+          } else {
+            endIdx = j
+          }
+        }
+      }
 
       for (let j = startIdx; j <= endIdx; j++) {
         // If it is a DELETE and we reached the editIndex, insert the deleted placeholder
@@ -1414,6 +1435,9 @@ export class TransactionService {
       const firstNegativeDate = firstNegative?.txDate || 'the conflict date'
       const requiredStock = Math.abs(shortage)
 
+      const settings = await SettingsService.getSettings()
+      const unit = settings.quantity_abbreviation || settings.fuel_unit || 'Gal'
+
       // Intelligent suggestions generation
       const suggestedFixes: string[] = []
       if (enrichedMeta.type === 'DELETE' && origTx) {
@@ -1421,14 +1445,14 @@ export class TransactionService {
       } else if (origTx) {
         if (origTx.transactionType === 'SALE' || (origTx.transactionType === 'TRANSFER' && origTx.sourceId === locationId)) {
           // Outflow - reducing helps
-          suggestedFixes.push(`Reduce edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} L (set to max ${(origTx.quantity - requiredStock).toFixed(0)} L).`)
+          suggestedFixes.push(`Reduce edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} ${unit} (set to max ${(origTx.quantity - requiredStock).toFixed(0)} ${unit}).`)
         } else if (origTx.transactionType === 'PURCHASE' || (origTx.transactionType === 'TRANSFER' && origTx.destinationId === locationId)) {
           // Inflow - increasing helps
-          suggestedFixes.push(`Increase edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} L.`)
+          suggestedFixes.push(`Increase edited quantity of ${editedTxMeta.number} by at least ${requiredStock.toFixed(0)} ${unit}.`)
         }
       }
 
-      suggestedFixes.push(`Add a new Purchase or Transfer In of at least ${requiredStock.toFixed(0)} L for ${driverName || locationId} before ${firstNegativeDate}.`)
+      suggestedFixes.push(`Add a new Purchase or Transfer In of at least ${requiredStock.toFixed(0)} ${unit} for ${driverName || locationId} before ${firstNegativeDate}.`)
 
       // Check for later outflows we can reduce
       const laterOutflows = affected.filter(
@@ -1437,17 +1461,17 @@ export class TransactionService {
       if (laterOutflows.length > 0) {
         suggestedFixes.push(
           ...laterOutflows.slice(0, 2).map(
-            (a) => `Delete or edit transaction ${a.txNumber} (${a.txType}, ${a.quantity} L) to free up stock.`
+            (a) => `Delete or edit transaction ${a.txNumber} (${a.txType}, ${a.quantity} ${unit}) to free up stock.`
           )
         )
       } else {
-        suggestedFixes.push(`Reduce one or more later sales/transfers totaling ${requiredStock.toFixed(0)} L before ${firstNegativeDate}.`)
+        suggestedFixes.push(`Reduce one or more later sales/transfers totaling ${requiredStock.toFixed(0)} ${unit} before ${firstNegativeDate}.`)
       }
 
       const description =
         `${enrichedMeta.type === 'DELETE' ? 'Deleting' : 'Editing'} ` +
         `transaction ${editedTxMeta.number} would cause ` +
-        `${driverName || locationId} to have ${shortage.toFixed(0)} L ` +
+        `${driverName || locationId} to have ${shortage.toFixed(0)} ${unit} ` +
         `after ${firstNegative?.txNumber || 'the conflict'} on ${firstNegativeDate}.`
 
       result.push({

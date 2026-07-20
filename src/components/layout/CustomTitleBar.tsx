@@ -1,4 +1,4 @@
-import { Sun, Database, User, Search } from 'lucide-react'
+import { Sun, Database, User, Search, Lock } from 'lucide-react'
 import { useAppStore, useUiStore } from '@/store'
 import { useState, useEffect } from 'react'
 
@@ -78,10 +78,21 @@ export default function CustomTitleBar() {
           </span>
         </div>
 
-        {/* Operator Badge */}
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-200 bg-slate-800/50 px-3 py-1 border border-slate-700/50 rounded-full font-bold select-none shadow-sm">
-          <User size={10} className="text-slate-400" />
-          <span>{currentOperator || 'Haroon Wazir'}</span>
+        {/* Operator Badge & Lock */}
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 text-[10px] text-slate-200 bg-slate-800/50 px-3 py-1 border border-slate-700/50 rounded-full font-bold select-none shadow-sm">
+            <User size={10} className="text-slate-400" />
+            <span>{currentOperator || 'Haroon Wazir'}</span>
+          </div>
+
+          <button
+            onClick={() => useAppStore.getState().lockApp()}
+            className="flex items-center gap-1 px-2.5 py-1 bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-slate-600 rounded-full text-[9.5px] text-slate-300 hover:text-white cursor-pointer transition-all shadow-sm"
+            title="Lock Application"
+          >
+            <Lock size={10} className="text-amber-400" />
+            <span className="font-semibold">Lock</span>
+          </button>
         </div>
 
         {/* Window Controls */}

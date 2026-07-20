@@ -475,11 +475,14 @@ export class ReportService {
       }
     }
 
+    const globalSettings = await SettingsService.getSettings()
+    const unit = globalSettings.quantity_abbreviation || globalSettings.fuel_unit || 'Gal'
+
     const alerts: any[] = []
     if (maxStock > 0) {
       alerts.push({
         title: 'Top Driver Stock Holder',
-        desc: `Driver ${maxStockDriverName} currently holds the highest diesel stock: ${maxStock.toLocaleString()} L.`,
+        desc: `Driver ${maxStockDriverName} currently holds the highest diesel stock: ${maxStock.toLocaleString()} ${unit}.`,
         type: 'info',
       })
     }

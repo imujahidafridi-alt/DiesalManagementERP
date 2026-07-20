@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import CustomTitleBar from './CustomTitleBar'
@@ -7,8 +8,19 @@ import {
   DialogContainer,
   SearchDialog,
 } from '@/components/ui'
+import PinLockScreen from '@/components/ui/PinLockScreen'
+import { useInactivityTimer } from '@/hooks/useInactivityTimer'
+import { useAppStore } from '@/store'
 
 export default function AppShell() {
+  const { checkPinStatus } = useAppStore()
+
+  useEffect(() => {
+    checkPinStatus()
+  }, [checkPinStatus])
+
+  useInactivityTimer()
+
   return (
     <ShortcutProvider>
       <div className="flex flex-col h-screen w-screen bg-transparent overflow-hidden font-sans">
@@ -33,6 +45,7 @@ export default function AppShell() {
       <ToastContainer />
       <DialogContainer />
       <SearchDialog />
+      <PinLockScreen />
     </ShortcutProvider>
   )
 }

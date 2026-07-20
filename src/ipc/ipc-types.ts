@@ -10,6 +10,7 @@ import { DriverStatement } from '../database/services/DriverService'
 import { CustomerStatement } from '../database/services/CustomerService'
 import type { EditDeleteResult } from '../database/services/TransactionService'
 import { SupplierStatement } from '../database/services/SupplierService'
+import type { AuthUser, AuthSession, PinVerifyResult } from '../database/services/PinService'
 
 // Service-aligned typed IPC boundary contract mapping.
 export interface IpcChannelMap {
@@ -261,7 +262,7 @@ export interface IpcChannelMap {
   'reports:getTransfersSummary': { args: []; return: any }
   'reports:exportCSV': { args: [gridId: string, search: string, filters: Record<string, any>, columns: any[]]; return: { canceled?: boolean; success?: boolean; filePath?: string } }
   'reports:exportExcel': { args: [gridId: string, search: string, filters: Record<string, any>, columns: any[]]; return: { canceled?: boolean; success?: boolean; filePath?: string } }
-  
+
   'backup:create': { args: [manualReason?: string, maxCount?: number]; return: string }
   'backup:list': { args: []; return: any[] }
   'backup:restore': { args: [filePath: string]; return: boolean }
@@ -271,6 +272,15 @@ export interface IpcChannelMap {
   'db:optimize': { args: []; return: boolean }
   'settings:get': { args: []; return: Record<string, string> }
   'settings:save': { args: [values: Record<string, string>, user: string]; return: boolean }
+  // Security & PIN Authentication (Supabase Auth Migration Ready)
+  'pin:hasPin': { args: []; return: boolean }
+  'pin:create': { args: [pin: string, profile?: { name?: string; email?: string; role?: 'ADMIN' | 'OPERATOR' }, user?: string]; return: { success: boolean; user?: AuthUser; error?: string } }
+  'pin:verify': { args: [pin: string, actionName?: string, user?: string]; return: PinVerifyResult }
+  'pin:change': { args: [currentPin: string, newPin: string, user?: string]; return: { success: boolean; error?: string } }
+  'pin:getSessionStatus': { args: []; return: AuthSession }
+  'pin:lockSession': { args: []; return: boolean }
+  'pin:unlockSession': { args: []; return: boolean }
+  'pin:setInactivityTimeout': { args: [minutes: number, user?: string]; return: boolean }
   'import:execute': { args: [entityType: string, rows: any[], user: string]; return: { imported: number; skipped: number; failed: number; executionTimeMs: number; errors: string[] } }
   'import:smartExecute': { args: [records: any[], user: string, autoCreateMasters: boolean]; return: { imported: number; errors: string[] } }
   'app:reboot': { args: []; return: void }
