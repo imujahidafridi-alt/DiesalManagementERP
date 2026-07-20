@@ -8,7 +8,7 @@ import {
 } from '../database/repositories/interfaces'
 import { DriverStatement } from '../database/services/DriverService'
 import { CustomerStatement } from '../database/services/CustomerService'
-import type { EditDeleteResult } from '../database/services/TransactionService'
+import type { TransactionOperationResult } from '../database/services/TransactionService'
 import { SupplierStatement } from '../database/services/SupplierService'
 import type { AuthUser, AuthSession, PinVerifyResult } from '../database/services/PinService'
 
@@ -123,7 +123,7 @@ export interface IpcChannelMap {
       user: string,
       overrideValidation?: boolean,
     ]
-    return: EditDeleteResult<Transaction>
+    return: TransactionOperationResult<Transaction>
   }
   'transactions:createTransfer': {
     args: [
@@ -153,7 +153,7 @@ export interface IpcChannelMap {
       user: string,
       overrideValidation?: boolean,
     ]
-    return: EditDeleteResult<Transaction>
+    return: TransactionOperationResult<Transaction>
   }
   'transactions:createReturn': {
     args: [
@@ -214,10 +214,10 @@ export interface IpcChannelMap {
       user: string,
       overrideValidation?: boolean,
     ]
-    return: EditDeleteResult<Transaction>
+    return: TransactionOperationResult<Transaction>
   }
-  'transactions:deleteTransaction': { args: [id: string, user: string, overrideValidation?: boolean]; return: EditDeleteResult<boolean> }
-  'transactions:restoreTransaction': { args: [id: string, user: string]; return: boolean }
+  'transactions:deleteTransaction': { args: [id: string, user: string, overrideValidation?: boolean]; return: TransactionOperationResult<boolean> }
+  'transactions:restoreTransaction': { args: [id: string, user: string]; return: TransactionOperationResult<boolean> }
 
   // Inventory
   'inventory:listSnapshots': { args: []; return: Inventory[] }

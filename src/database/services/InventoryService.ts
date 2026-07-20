@@ -31,7 +31,7 @@ export class InventoryService {
         stock -= tx.quantity
       }
     }
-    return Math.max(0, stock)
+    return stock
   }
 
   /**
@@ -57,7 +57,7 @@ export class InventoryService {
           ? tx.unitCost 
           : tx.averageCostSnapshot
 
-        const previousStock = stock
+        const previousStock = Math.max(0, stock)
         stock += qtyIn
 
         if (stock > 0 && qtyIn > 0 && costIn > 0) {
@@ -65,7 +65,7 @@ export class InventoryService {
         }
       } else if (tx.sourceId === item) {
         // Sales and Transfers consume stock at the current WAC, keeping the WAC constant
-        stock = Math.max(0, stock - tx.quantity)
+        stock = stock - tx.quantity
       }
     }
     return wac

@@ -7,6 +7,9 @@ import { TransactionService } from '../database/services/TransactionService'
 import { InventoryService } from '../database/services/InventoryService'
 import { AuditService } from '../database/services/AuditService'
 import crypto from 'crypto'
+import { db } from '../database/db'
+import { transactions } from '../database/schema/schema'
+import { eq } from 'drizzle-orm'
 
 describe('Transaction Engine Core & Chronological Stock Rebuilding Integration Tests', () => {
   let supplierId: string
@@ -152,18 +155,22 @@ describe('Transaction Engine Core & Chronological Stock Rebuilding Integration T
       ).rejects.toThrow('Cannot transfer fuel to the same driver')
     })
 
-    it('should block transfers when source driver has insufficient stock', async () => {
-      await expect(
-        TransactionService.createTransfer(
-          {
-            fromDriverId: driver2Id,
-            toDriverId: driver1Id,
-            quantity: 500,
-            transactionDate: '2026-07-05',
-          },
-          operator
-        )
-      ).rejects.toThrow('Insufficient stock')
+    it('should allow transfers even when source driver has 0 or negative stock', async () => {
+      const trf = await TransactionService.createTransfer(
+        {
+          fromDriverId: driver2Id,
+          toDriverId: driver1Id,
+          quantity: 500,
+          transactionDate: '2026-07-05',
+        },
+        operator
+      )
+      expect(trf.transactionType).toBe('TRANSFER')
+      const bal = await InventoryService.calculateInventory(driver2Id)
+      expect(bal).toBe(-500)
+      // Cleanup transfer so it does not affect subsequent sequential tests
+      await db.delete(transactions).where(eq(transactions.id, trf.id))
+      await TransactionService.recalculateLedger()
     })
 
     it('should successfully transfer fuel carrying the correct cost WAC snapshot', async () => {
@@ -350,19 +357,18 @@ describe('Transaction Engine Core & Chronological Stock Rebuilding Integration T
     it('should rollback all db writes if one step in a transaction throws an error', async () => {
       const stockBefore = await InventoryService.calculateInventory(driver1Id)
 
-      // Attempt to execute a transfer of 50,000L (exceeds stock) from Driver 1 to Driver 2
-      // This will throw InsufficientInventoryError inside db.transaction() block
+      // Attempt to execute a transfer with non-existent driver ID
       await expect(
         TransactionService.createTransfer(
           {
-            fromDriverId: driver1Id,
+            fromDriverId: 'non-existent-driver-id',
             toDriverId: driver2Id,
             quantity: 50000,
             transactionDate: '2026-07-05',
           },
           operator
         )
-      ).rejects.toThrow('Insufficient stock')
+      ).rejects.toThrow()
 
       // Ensure no rows were written and stock is unmodified
       const stockAfter = await InventoryService.calculateInventory(driver1Id)

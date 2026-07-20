@@ -10,8 +10,6 @@ import {
   useShortcutEffect,
   Combobox,
 } from '@/components/ui'
-import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
-import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -65,11 +63,6 @@ export default function TransfersPage() {
   const [formData, setFormData] = useState<TransferFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof TransferFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
-
-  // Conflict dialog state
-  const [conflictOpen, setConflictOpen] = useState(false)
-  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
-  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Input refs for keyboard traversals
   const refDate = useRef<HTMLInputElement>(null)
@@ -221,16 +214,13 @@ export default function TransfersPage() {
       confirmText: 'Soft Delete',
       onConfirm: async () => {
         const result = await deleteTransfer(selectedTxRow.id)
-        if (result.success) {
-          addToast('Transfer deleted and inventory recalculated.', 'success')
-          setSelectedTxRow(null)
-          grid.reload()
-          loadSummary()
-        } else {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleDelete)
-          setConflictOpen(true)
+        addToast('Transfer deleted and inventory recalculated.', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
         }
+        setSelectedTxRow(null)
+        grid.reload()
+        loadSummary()
       },
     })
   }
@@ -255,19 +245,7 @@ export default function TransfersPage() {
     const qty = parseFloat(formData.quantity)
     if (isNaN(qty) || qty <= 0) {
       errors.quantity = `Quantity must be greater than 0 ${unit}`
-    } else {
-      // Balance check: account for editId prior quantity
-      let priorQty = 0
-      if (editId && selectedTxRow && selectedTxRow.sourceId === formData.fromDriverId) {
-        priorQty = selectedTxRow.quantity
-      }
-      const available = fromDriverStock + priorQty
-      if (qty > available) {
-        errors.quantity = `Insufficient inventory. Available: ${FormattingService.formatQuantity(available)}`
-      }
     }
-
-
 
     setFormErrors(errors)
     return Object.keys(errors).length === 0
@@ -291,16 +269,14 @@ export default function TransfersPage() {
 
       if (editId) {
         const result = await updateTransfer(editId, payload)
-        if (!result.success) {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleSubmit)
-          setConflictOpen(true)
-          return
-        }
         addToast('Transfer invoice updated successfully', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
+        }
       } else {
-        await createTransfer(payload)
-        addToast('Transfer processed successfully', 'success')
+        const res = await createTransfer(payload)
+        const txNum = res.transactionNumber || ''
+        addToast(`Transfer ${txNum} processed successfully`, 'success')
       }
 
       setIsEditing(false)
@@ -634,17 +610,6 @@ export default function TransfersPage() {
         </div>
       </div>
     </div>
-
-    <InventoryConflictDialog
-      isOpen={conflictOpen}
-      conflicts={stockConflicts}
-      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
-      onValidateAgain={pendingRetry ? () => {
-        setConflictOpen(false)
-        setStockConflicts([])
-        pendingRetry()
-      } : undefined}
-    />
     </>
   )
 }

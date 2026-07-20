@@ -144,9 +144,12 @@ export default function DashboardPage() {
         <div className="bg-white border rounded shadow-subtle p-3.5 flex items-center justify-between">
           <div className="space-y-1">
             <span className="text-[10px] uppercase font-bold text-gray-400">Total Driver Stock</span>
-            <p className="text-lg font-black text-gray-800">{FormattingService.formatQuantity(stats.totalStock)}</p>
+            <p className={`text-lg font-black ${stats.totalStock < 0 ? 'text-red-600 flex items-center gap-1.5' : 'text-gray-800'}`}>
+              {stats.totalStock < 0 && <span title="Negative overall stock">🔴</span>}
+              {FormattingService.formatQuantity(stats.totalStock)}
+            </p>
           </div>
-          <div className="p-2.5 bg-blue-50 text-blue-600 rounded">
+          <div className={`p-2.5 rounded ${stats.totalStock < 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
             <Database size={16} />
           </div>
         </div>

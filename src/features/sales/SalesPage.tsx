@@ -10,8 +10,6 @@ import {
   useShortcutEffect,
   Combobox,
 } from '@/components/ui'
-import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
-import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -75,11 +73,6 @@ export default function SalesPage() {
   const [formData, setFormData] = useState<SaleFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof SaleFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
-
-  // Conflict dialog state
-  const [conflictOpen, setConflictOpen] = useState(false)
-  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
-  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Traversals
   const refDate = useRef<HTMLInputElement>(null)
@@ -290,16 +283,13 @@ export default function SalesPage() {
       confirmText: 'Soft Delete',
       onConfirm: async () => {
         const result = await deleteSale(selectedTxRow.id)
-        if (result.success) {
-          addToast('Sale transaction soft-deleted and inventory recalculated.', 'success')
-          setSelectedTxRow(null)
-          grid.reload()
-          loadSummary()
-        } else {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleDelete)
-          setConflictOpen(true)
+        addToast('Sale transaction soft-deleted and inventory recalculated.', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
         }
+        setSelectedTxRow(null)
+        grid.reload()
+        loadSummary()
       },
     })
   }
@@ -321,18 +311,6 @@ export default function SalesPage() {
     const qty = parseFloat(formData.quantity)
     if (isNaN(qty) || qty <= 0) {
       errors.quantity = `Quantity must be greater than 0 ${unit}`
-    } else {
-      // Balance check: account for editId prior quantity
-      let priorQty = 0
-      if (editId && selectedTxRow) {
-        if (selectedTxRow.sourceId === formData.driverId) {
-          priorQty = selectedTxRow.quantity
-        }
-      }
-      const availableStock = driverStock + priorQty
-      if (qty > availableStock) {
-        errors.quantity = `Insufficient inventory. Available: ${FormattingService.formatQuantity(availableStock)}`
-      }
     }
 
     const rate = parseFloat(formData.sellingRateDollars)
@@ -363,16 +341,14 @@ export default function SalesPage() {
 
       if (editId) {
         const result = await updateSale(editId, payload)
-        if (!result.success) {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleSubmit)
-          setConflictOpen(true)
-          return
-        }
         addToast('Customer sale invoice updated and recalculated successfully', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
+        }
       } else {
-        await createSale(payload)
-        addToast('Customer sale transaction created successfully', 'success')
+        const res = await createSale(payload)
+        const txNum = res.transactionNumber || ''
+        addToast(`Customer sale ${txNum} created successfully`, 'success')
       }
 
       setIsEditing(false)
@@ -791,17 +767,6 @@ export default function SalesPage() {
         </div>
       </div>
     </div>
-
-    <InventoryConflictDialog
-      isOpen={conflictOpen}
-      conflicts={stockConflicts}
-      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
-      onValidateAgain={pendingRetry ? () => {
-        setConflictOpen(false)
-        setStockConflicts([])
-        pendingRetry()
-      } : undefined}
-    />
     </>
   )
 }

@@ -149,14 +149,6 @@ export default function InventoryPage() {
     const qty = parseFloat(formData.quantity)
     if (isNaN(qty) || qty <= 0) {
       errors.quantity = 'Quantity must be greater than 0'
-    } else {
-      if (formData.adjustmentType === 'DECREASE') {
-        const driverRow = driverStockRows.find((r) => r.id === formData.driverId)
-        const currentStock = driverRow ? driverRow.currentStock : 0
-        if (qty > currentStock) {
-          errors.quantity = `Insufficient stock to adjust. Available: ${FormattingService.formatQuantity(currentStock)}`
-        }
-      }
     }
     if (!formData.notes || formData.notes.trim() === '') {
       errors.notes = 'Reason for adjustment is mandatory'
@@ -239,9 +231,14 @@ export default function InventoryPage() {
     {
       key: 'currentStock',
       header: `Current Stock (${unit})`,
-      width: 140,
+      width: 160,
       type: 'number',
-      render: (row) => FormattingService.formatQuantity(row.currentStock),
+      render: (row) => (
+        <span className={row.currentStock < 0 ? 'text-red-600 font-extrabold flex items-center gap-1.5' : ''}>
+          {row.currentStock < 0 && <span title="Negative stock balance">🔴</span>}
+          {FormattingService.formatQuantity(row.currentStock)}
+        </span>
+      ),
     },
     {
       key: 'weightedAverageCost',

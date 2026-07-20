@@ -10,8 +10,6 @@ import {
   DataGrid,
   useShortcutEffect,
 } from '@/components/ui'
-import InventoryConflictDialog from '@/components/ui/InventoryConflictDialog'
-import type { StockConflict } from '@/database/services/TransactionService'
 import type { GridColumn } from '@/components/ui/DataGrid'
 import {
   Plus,
@@ -74,11 +72,6 @@ export default function PurchasesPage() {
   const [formData, setFormData] = useState<PurchaseFormData>(emptyForm)
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof PurchaseFormData, string>>>({})
   const [selectedTxRow, setSelectedTxRow] = useState<any | null>(null)
-
-  // Conflict dialog state
-  const [conflictOpen, setConflictOpen] = useState(false)
-  const [stockConflicts, setStockConflicts] = useState<StockConflict[]>([])
-  const [pendingRetry, setPendingRetry] = useState<(() => void) | null>(null)
 
   // Input refs for keyboard tab/enter traversal
   const refDate = useRef<HTMLInputElement>(null)
@@ -242,16 +235,13 @@ export default function PurchasesPage() {
       confirmText: 'Soft Delete',
       onConfirm: async () => {
         const result = await deletePurchase(selectedTxRow.id)
-        if (result.success) {
-          addToast('Purchase transaction soft-deleted and inventory recalculated.', 'success')
-          setSelectedTxRow(null)
-          grid.reload()
-          loadSummary()
-        } else {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleDelete)
-          setConflictOpen(true)
+        addToast('Purchase transaction soft-deleted and inventory recalculated.', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
         }
+        setSelectedTxRow(null)
+        grid.reload()
+        loadSummary()
       },
     })
   }
@@ -261,25 +251,23 @@ export default function PurchasesPage() {
     setFormData(emptyForm)
     setFormErrors({})
     setEditId(null)
-    addToast('Editing discarded', 'info')
   }
 
-  const validateForm = (): boolean => {
+  const validate = (): boolean => {
     const errors: Partial<Record<keyof PurchaseFormData, string>> = {}
 
     if (!formData.date) errors.date = 'Date is required'
-    if (!formData.supplierId) errors.supplierId = 'Please select a supplier'
-    if (!formData.destinationLocation) errors.destinationLocation = 'Select a driver'
-    if (!formData.referenceNumber) errors.referenceNumber = 'Vehicle number is required'
+    if (!formData.supplierId) errors.supplierId = 'Supplier is required'
+    if (!formData.destinationLocation) errors.destinationLocation = 'Destination driver is required'
 
     const qty = parseFloat(formData.quantity)
     if (isNaN(qty) || qty <= 0) {
       errors.quantity = `Quantity must be greater than 0 ${unit}`
     }
 
-    const rate = parseFloat(formData.unitCostDollars)
-    if (isNaN(rate) || rate <= 0) {
-      errors.unitCostDollars = `Purchase Rate must be greater than 0 ${symbol}`
+    const cost = parseFloat(formData.unitCostDollars)
+    if (isNaN(cost) || cost <= 0) {
+      errors.unitCostDollars = 'Unit cost must be greater than $0.00'
     }
 
     setFormErrors(errors)
@@ -303,7 +291,7 @@ export default function PurchasesPage() {
   }
 
   const handleSubmit = async () => {
-    if (!validateForm()) {
+    if (!validate()) {
       addToast('Please resolve validation errors before saving', 'error')
       return
     }
@@ -321,16 +309,14 @@ export default function PurchasesPage() {
 
       if (editId) {
         const result = await updatePurchase(editId, submissionData)
-        if (!result.success) {
-          setStockConflicts(result.conflicts)
-          setPendingRetry(() => handleSubmit)
-          setConflictOpen(true)
-          return
-        }
         addToast('Purchase record updated and retroactively recalculated', 'success')
+        if (result.warnings && result.warnings.length > 0) {
+          result.warnings.forEach((w: string) => addToast(w, 'info'))
+        }
       } else {
         const res = await createPurchase(submissionData)
-        addToast(`Purchase ${res.transactionNumber} created successfully`, 'success')
+        const txNum = res.transactionNumber || ''
+        addToast(`Purchase ${txNum} created successfully`, 'success')
       }
 
       setIsEditing(false)
@@ -764,17 +750,6 @@ export default function PurchasesPage() {
         </div>
       </div>
     </div>
-
-    <InventoryConflictDialog
-      isOpen={conflictOpen}
-      conflicts={stockConflicts}
-      onClose={() => { setConflictOpen(false); setStockConflicts([]) }}
-      onValidateAgain={pendingRetry ? () => {
-        setConflictOpen(false)
-        setStockConflicts([])
-        pendingRetry()
-      } : undefined}
-    />
     </>
   )
 }

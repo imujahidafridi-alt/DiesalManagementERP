@@ -399,7 +399,18 @@ export default function ReportsPage() {
       case 'inventory_valuation':
         cols = [
           { key: 'locationName', header: 'Driver Name', width: 220 },
-          { key: 'currentStock', header: `Current Stock (${unit})`, width: 125, align: 'right', render: (row) => FormattingService.formatQuantity(row.currentStock || 0) },
+          {
+            key: 'currentStock',
+            header: `Current Stock (${unit})`,
+            width: 140,
+            align: 'right',
+            render: (row) => (
+              <span className={(row.currentStock || 0) < 0 ? 'text-red-600 font-extrabold flex items-center justify-end gap-1' : ''}>
+                {(row.currentStock || 0) < 0 && <span title="Negative stock balance">🔴</span>}
+                {FormattingService.formatQuantity(row.currentStock || 0)}
+              </span>
+            ),
+          },
           { key: 'weightedAverageCost', header: `Carrying WAC (${symbol}/${unit})`, width: 125, align: 'right', render: (row) => row.weightedAverageCost > 0 ? FormattingService.formatRate(row.weightedAverageCost) : '—' },
           { key: 'totalAssetValue', header: 'Asset Value', width: 140, align: 'right', render: (row) => FormattingService.formatCurrency(row.totalAssetValue || 0) },
         ]
@@ -548,7 +559,18 @@ export default function ReportsPage() {
           { key: 'transferredOut', header: 'Transferred Out', width: 115, type: 'number' },
           { key: 'sold', header: `Total Sold (${unit})`, width: 110, type: 'number' },
           { key: 'adjusted', header: `Adjusted (${unit})`, width: 105, type: 'number' },
-          { key: 'closingBalance', header: 'Closing Stock', width: 110, type: 'number' },
+          {
+            key: 'closingBalance',
+            header: 'Closing Stock',
+            width: 130,
+            type: 'number',
+            render: (row) => (
+              <span className={(row.closingBalance || 0) < 0 ? 'text-red-600 font-extrabold flex items-center justify-end gap-1' : ''}>
+                {(row.closingBalance || 0) < 0 && <span title="Negative stock balance">🔴</span>}
+                {FormattingService.formatQuantity(row.closingBalance || 0)}
+              </span>
+            ),
+          },
         ]
         break
       case 'customer_ledger':

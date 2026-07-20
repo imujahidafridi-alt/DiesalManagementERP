@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { Transaction, Supplier, Inventory, Driver, Customer } from '@/database/repositories/interfaces'
-import type { EditDeleteResult } from '@/database/services/TransactionService'
+import type { TransactionOperationResult } from '@/database/services/TransactionService'
 import type { AuthUser, AuthSession, PinVerifyResult } from '@/database/services/PinService'
 
 // --- 1. UI Store ---
@@ -138,9 +138,9 @@ interface AppState {
     referenceNumber?: string
     transactionDate: string
     notes?: string
-  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
+  }, overrideValidation?: boolean) => Promise<TransactionOperationResult<Transaction>>
 
-  deletePurchase: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
+  deletePurchase: (id: string, overrideValidation?: boolean) => Promise<TransactionOperationResult<boolean>>
 
   createTransfer: (data: {
     fromDriverId: string
@@ -158,9 +158,9 @@ interface AppState {
     vehicleNumber?: string
     transactionDate: string
     notes?: string
-  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
+  }, overrideValidation?: boolean) => Promise<TransactionOperationResult<Transaction>>
 
-  deleteTransfer: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
+  deleteTransfer: (id: string, overrideValidation?: boolean) => Promise<TransactionOperationResult<boolean>>
   getDriverStatementReport: (driverId: string, filters?: { startDate?: string; endDate?: string }) => Promise<{
     driverName: string
     assignedVehiclePlate: string | null
@@ -189,9 +189,9 @@ interface AppState {
     vehicleNumber?: string
     transactionDate: string
     notes?: string
-  }, overrideValidation?: boolean) => Promise<EditDeleteResult<Transaction>>
+  }, overrideValidation?: boolean) => Promise<TransactionOperationResult<Transaction>>
 
-  deleteSale: (id: string, overrideValidation?: boolean) => Promise<EditDeleteResult<boolean>>
+  deleteSale: (id: string, overrideValidation?: boolean) => Promise<TransactionOperationResult<boolean>>
 
   refreshAllTransactionData: () => Promise<void>
   createAdjustment: (data: {

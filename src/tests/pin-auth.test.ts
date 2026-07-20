@@ -3,8 +3,11 @@ import { PinService } from '../database/services/PinService'
 import { db } from '../database/db'
 import { settings } from '../database/schema/schema'
 
+import { runMigrations } from '../database/migrator'
+
 describe('PinService - Security & Supabase Migration Ready Auth', () => {
   beforeEach(async () => {
+    runMigrations()
     // Clear settings table before each test
     await db.delete(settings)
   })
