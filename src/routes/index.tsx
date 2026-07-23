@@ -14,6 +14,7 @@ const InventoryPage = lazy(() => import('@/features/inventory/InventoryPage'))
 const ReportsPage = lazy(() => import('@/features/reports/ReportsPage'))
 const SettingsPage = lazy(() => import('@/features/settings/SettingsPage'))
 const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
+const BackupsPage = lazy(() => import('@/features/backups/BackupsPage'))
 const AboutPage = lazy(() => import('@/features/about/AboutPage'))
 
 // Fallback spinner component
@@ -114,6 +115,14 @@ export const router = createHashRouter(
           element: (
             <Suspense fallback={<LoadingFallback />}>
               <AuditPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'backups',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <BackupsPage />
             </Suspense>
           ),
         },

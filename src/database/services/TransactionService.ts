@@ -7,7 +7,6 @@ import { SupplierRepository } from '../repositories/SupplierRepository'
 import { InventoryService } from './InventoryService'
 import { CostingEngine } from './CostingEngine'
 import { SettingsService } from './SettingsService'
-import { CloudVaultService } from './CloudVaultService'
 import { generateNextTransactionNumber } from '../utils/numbering'
 import { validatePurchaseSchema } from '../schema/validation'
 import {
@@ -776,9 +775,6 @@ export class TransactionService {
       const lastId = lastTx[0]?.id || 'NONE'
       upsertInvStmt.run(item, st.stock, st.wac, lastId, now)
     }
-
-    // Dispatch background Cloud Vault sync (non-blocking)
-    CloudVaultService.syncSnapshot('auto').catch(() => {})
   }
 
   static async recalculateLedger(fromDate?: string): Promise<void> {

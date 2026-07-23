@@ -36,7 +36,7 @@ sqlite.pragma('foreign_keys = ON')
 // Enable write-ahead logging (WAL) for better concurrent performance
 sqlite.pragma('journal_mode = WAL')
 
-export const db = drizzle(sqlite, { schema })
+export let db = drizzle(sqlite, { schema })
 
 // Synchronous startup migration helper to convert database transactions to driver-centric
 function runMigration() {
@@ -235,5 +235,17 @@ export async function runInTransaction<T>(action: () => Promise<T>): Promise<T> 
       // Catch queue rejections to prevent blocking subsequent transactions
     })
   })
+}
+
+export function reopenDatabase() {
+  try {
+    if (sqlite && sqlite.open) {
+      sqlite.close()
+    }
+  } catch {}
+  sqlite = new Database(dbPath)
+  sqlite.pragma('foreign_keys = ON')
+  sqlite.pragma('journal_mode = WAL')
+  db = drizzle(sqlite, { schema })
 }
 

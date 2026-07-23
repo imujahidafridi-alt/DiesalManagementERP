@@ -1,10 +1,11 @@
-import { sqlite, dbPath } from '../db'
+import { sqlite, dbPath, reopenDatabase } from '../db'
 import Database from 'better-sqlite3'
 import zlib from 'zlib'
 import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import { Logger } from '../../utils/Logger'
+import { SettingsService } from './SettingsService'
 
 export class BackupService {
   private static defaultBackupFolder: string | null = null
@@ -41,7 +42,15 @@ export class BackupService {
     return folder
   }
 
-  static async createBackup(manualReason?: string, maxCount = 10): Promise<string> {
+  static async createBackup(manualReason?: string, maxCount?: number): Promise<string> {
+    if (maxCount === undefined) {
+      try {
+        const settings = await SettingsService.getSettings()
+        maxCount = parseInt(settings.max_backup_count || '30', 10) || 30
+      } catch {
+        maxCount = 30
+      }
+    }
     const backupFolder = this.getBackupFolder()
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const tempFileName = `backup_temp_${timestamp}.db`
@@ -113,6 +122,20 @@ export class BackupService {
     } catch (e) {
       Logger.error('Failed to list backups', e)
       return []
+    }
+  }
+
+  static deleteBackup(filePath: string): boolean {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath)
+        Logger.info(`Deleted backup file: ${filePath}`)
+        return true
+      }
+      return false
+    } catch (e) {
+      Logger.error(`Failed to delete backup file: ${filePath}`, e)
+      return false
     }
   }
 
@@ -188,8 +211,8 @@ export class BackupService {
       }
 
       Logger.info('Database restore swap succeeded. Reloading connection.')
-      // Re-init connection
-      sqlite.open // will automatically reopen on next query
+      // Re-open better-sqlite3 connection cleanly
+      reopenDatabase()
       return true
     } catch (error) {
       Logger.error('Failed to restore database backup', error)

@@ -266,6 +266,7 @@ export interface IpcChannelMap {
   'backup:create': { args: [manualReason?: string, maxCount?: number]; return: string }
   'backup:list': { args: []; return: any[] }
   'backup:restore': { args: [filePath: string]; return: boolean }
+  'backup:delete': { args: [filePath: string]; return: boolean }
   'backup:getFolder': { args: []; return: string }
   'backup:setFolder': { args: [folder: string]; return: void }
 

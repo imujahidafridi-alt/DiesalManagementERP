@@ -3,26 +3,17 @@ import { Button, Input, Select, useShortcutEffect } from '@/components/ui'
 import { useUiStore, useAppStore } from '@/store'
 import {
   Save,
-  Database,
-  ShieldCheck,
-  RotateCcw,
   Sliders,
   Building,
-  HardDrive,
-  Cpu,
   Keyboard,
   Info,
   Lock,
   Shield,
   KeyRound,
-  Cloud,
-  UploadCloud,
-  CheckCircle2,
 } from 'lucide-react'
-import PinConfirmModal from '@/components/ui/PinConfirmModal'
 
 export default function SettingsPage() {
-  const { addToast, showDialog } = useUiStore()
+  const { addToast } = useUiStore()
   const {
     settings,
     fetchSettings,
@@ -32,8 +23,8 @@ export default function SettingsPage() {
     setInactivityTimeoutMinutes,
   } = useAppStore()
 
-  // Tab State: company, rules, security, backup, db, shortcuts
-  const [activeTab, setActiveTab] = useState<'company' | 'rules' | 'security' | 'backup' | 'db' | 'shortcuts'>('company')
+  // Tab State: company, rules, security, shortcuts
+  const [activeTab, setActiveTab] = useState<'company' | 'rules' | 'security' | 'shortcuts'>('company')
 
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState<Record<string, string>>({})
@@ -44,85 +35,16 @@ export default function SettingsPage() {
   const [confirmNewPin, setConfirmNewPin] = useState('')
   const [pinChanging, setPinChanging] = useState(false)
 
-  // PIN Guard state for DB Restore
-  const [pinModalOpen, setPinModalOpen] = useState(false)
-  const [pendingRestoreBackup, setPendingRestoreBackup] = useState<any | null>(null)
-
-  // Backup list and diagnostics state
-  const [backups, setBackups] = useState<any[]>([])
-  const [integrityStatus, setIntegrityStatus] = useState<{ checked: boolean; ok: boolean; issues: string[] }>({
-    checked: false,
-    ok: true,
-    issues: [],
-  })
-
-  // Cloud Vault state
-  const [testingCloud, setTestingCloud] = useState(false)
-  const [syncingCloud, setSyncingCloud] = useState(false)
-  const [cloudStatus, setCloudStatus] = useState<any>(null)
-
-  const fetchCloudVaultStatus = async () => {
-    try {
-      const st = await window.api.invoke('cloudVault:getStatus')
-      setCloudStatus(st)
-    } catch {}
-  }
 
   // Sync state on load
   const loadConfig = async () => {
     setLoading(true)
     try {
       await fetchSettings()
-      // Load backups history
-      const list = await window.api.invoke('backup:list')
-      setBackups(list || [])
-      await fetchCloudVaultStatus()
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleTestCloudConnection = async () => {
-    setTestingCloud(true)
-    try {
-      const config = {
-        enabled: formData.cloud_vault_enabled === 'true',
-        provider: (formData.cloud_vault_provider as any) || 'cloudflare_r2',
-        endpoint: formData.cloud_vault_endpoint || '',
-        bucketName: formData.cloud_vault_bucket_name || '',
-        accessKeyId: formData.cloud_vault_access_key_id || '',
-        secretAccessKey: formData.cloud_vault_secret_access_key || '',
-        region: formData.cloud_vault_region || 'auto',
-      }
-      const res = await window.api.invoke('cloudVault:testConnection', config)
-      if (res.success) {
-        addToast(res.message, 'success')
-      } else {
-        addToast(res.message, 'error')
-      }
-    } catch (err: any) {
-      addToast(err.message || 'Connection test failed', 'error')
-    } finally {
-      setTestingCloud(false)
-    }
-  }
-
-  const handleSyncCloudVaultNow = async () => {
-    setSyncingCloud(true)
-    try {
-      const res = await window.api.invoke('cloudVault:syncNow', 'manual_user')
-      if (res.success) {
-        addToast('Cloud backup completed successfully!', 'success')
-        fetchCloudVaultStatus()
-      } else {
-        addToast(res.error || 'Cloud backup failed. Please check connection.', 'error')
-      }
-    } catch (err: any) {
-      addToast('Cloud backup failed', 'error')
-    } finally {
-      setSyncingCloud(false)
     }
   }
 
@@ -158,29 +80,6 @@ export default function SettingsPage() {
 
   useShortcutEffect('save', triggerSave)
 
-  // ----------------------------------------------------
-  // BACKUP OPERATIONS HANDLERS
-  // ----------------------------------------------------
-  const handleManualBackup = async () => {
-    showDialog({
-      title: 'Run Instant Gzip Backup',
-      message: 'This will lock the ledger database briefly to generate a compressed backup. Proceed?',
-      type: 'confirm',
-      confirmText: 'Generate Backup',
-      onConfirm: async () => {
-        try {
-          const path = await window.api.invoke('backup:create', 'Manual_Admin')
-          addToast(`Backup created successfully: ${path.split('\\').pop()}`, 'success')
-          // Refresh list
-          const list = await window.api.invoke('backup:list')
-          setBackups(list || [])
-        } catch (e: any) {
-          addToast(e.message || 'Failed to create backup', 'error')
-        }
-      },
-    })
-  }
-
   const handleChangePin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!currentPin) {
@@ -214,68 +113,6 @@ export default function SettingsPage() {
     }
   }
 
-  const handleRestoreBackup = (bk: any) => {
-    setPendingRestoreBackup(bk)
-    setPinModalOpen(true)
-  }
-
-  const executeRestoreAfterPin = () => {
-    if (!pendingRestoreBackup) return
-    const bk = pendingRestoreBackup
-    showDialog({
-      title: 'DANGER: RESTORE DATABASE',
-      message: `Are you absolutely sure you want to restore the database to the snapshot from ${new Date(bk.createdAt).toLocaleString()}? All ledger entries created after this timestamp will be PERMANENTLY lost. The application will automatically relaunch on completion.`,
-      type: 'confirm',
-      confirmText: 'Restore & Reboot',
-      onConfirm: async () => {
-        try {
-          addToast('Restoring database. Please do not close the app.', 'info')
-          await window.api.invoke('backup:restore', bk.path)
-          addToast('Restore succeeded. Restarting application...', 'success')
-          setTimeout(() => {
-            window.api.invoke('app:reboot')
-          }, 1500)
-        } catch (e: any) {
-          showDialog({
-            title: 'Restore Failed',
-            message: `Restore operation was aborted to prevent data corruption. Error: ${e.message}`,
-            type: 'warning',
-          })
-        }
-      },
-    })
-  }
-
-  // ----------------------------------------------------
-  // INTEGRITY & MAINTENANCE HANDLERS
-  // ----------------------------------------------------
-  const handleIntegrityCheck = async () => {
-    try {
-      const res = await window.api.invoke('db:integrityCheck')
-      setIntegrityStatus({
-        checked: true,
-        ok: res.ok,
-        issues: res.issues,
-      })
-      if (res.ok) {
-        addToast('Data health check passed successfully.', 'success')
-      } else {
-        addToast('Data issues detected during check.', 'error')
-      }
-    } catch (e: any) {
-      addToast('Health check failed', 'error')
-    }
-  }
-
-  const handleOptimizeDb = async () => {
-    try {
-      addToast('Optimizing storage & performance...', 'info')
-      await window.api.invoke('db:optimize')
-      addToast('System storage optimization completed successfully', 'success')
-    } catch (e: any) {
-      addToast('System optimization failed', 'error')
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -322,26 +159,6 @@ export default function SettingsPage() {
         >
           <Shield size={13} />
           <span>Security & PIN</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('backup')}
-          className={`px-4 py-2 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
-            activeTab === 'backup' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-900'
-          }`}
-        >
-          <HardDrive size={13} />
-          <span>Cloud & Local Backups</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('db')}
-          className={`px-4 py-2 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
-            activeTab === 'db' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-900'
-          }`}
-        >
-          <Cpu size={13} />
-          <span>System Maintenance</span>
         </button>
 
         <button
@@ -531,7 +348,7 @@ export default function SettingsPage() {
                     disabled={!currentPin || !newPin || newPin !== confirmNewPin}
                     className="gap-2"
                   >
-                    <ShieldCheck size={14} />
+                    <Shield size={14} />
                     <span>Update Security PIN</span>
                   </Button>
                 </div>
@@ -571,204 +388,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* TAB 4: Cloud & Local Backups */}
-        {activeTab === 'backup' && (
-          <div className="space-y-6 max-w-2xl">
-            {/* 1. Automatic Cloud Backup */}
-            <div className="border border-blue-200 rounded-xl p-5 bg-gradient-to-br from-blue-50/60 to-slate-50 space-y-4 shadow-xs">
-              <div className="flex items-center justify-between pb-3 border-b border-blue-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-blue-600 text-white rounded-lg shadow-xs">
-                    <Cloud size={18} />
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">Automatic Cloud Backup</h3>
-                    <p className="text-[11px] text-slate-500">Real-time background cloud protection with end-to-end encryption.</p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {cloudStatus?.lastSyncTime && (
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      Last sync: {new Date(cloudStatus.lastSyncTime).toLocaleTimeString()}
-                    </span>
-                  )}
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300">
-                    🟢 Cloud Protection Active
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-lg border border-slate-200/80">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Storage Provider</span>
-                    <span className="font-semibold text-slate-800">Cloudflare R2 Secure Storage</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Security Status</span>
-                    <span className="font-semibold text-emerald-700 flex items-center gap-1">
-                      <ShieldCheck size={12} />
-                      Protected System Setup
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    isLoading={testingCloud}
-                    onClick={handleTestCloudConnection}
-                    className="gap-2 text-xs"
-                  >
-                    <CheckCircle2 size={13} className="text-emerald-600" />
-                    <span>Test Cloud Connection</span>
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    isLoading={syncingCloud}
-                    onClick={handleSyncCloudVaultNow}
-                    className="gap-2 text-xs"
-                  >
-                    <UploadCloud size={13} className="text-blue-600" />
-                    <span>Backup to Cloud Now</span>
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Local Disk Backup Preferences */}
-            <div className="border border-slate-200 rounded-xl p-5 bg-white space-y-4">
-              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider border-b pb-2">Local Storage & Backup Preferences</h3>
-              <Input
-                label="Backup Location Folder"
-                value={formData.default_backup_folder || ''}
-                onChange={(e) => handleInputChange('default_backup_folder', e.target.value)}
-                placeholder="Defaults to Documents/Sahara_Diesels_Backups"
-              />
-
-              <div className="grid grid-cols-2 gap-4">
-                <Select
-                  label="Keep Backups Count"
-                  value={formData.max_backup_count || '10'}
-                  onChange={(e: any) => handleInputChange('max_backup_count', e.target.value)}
-                  options={[
-                    { value: '5', label: '5 Backups' },
-                    { value: '10', label: '10 Backups (Recommended)' },
-                    { value: '20', label: '20 Backups' },
-                    { value: '50', label: '50 Backups' },
-                  ]}
-                />
-
-                <Select
-                  label="Auto Backup Frequency"
-                  value={formData.auto_backup_frequency || 'Daily'}
-                  onChange={(e: any) => handleInputChange('auto_backup_frequency', e.target.value)}
-                  options={[
-                    { value: 'Hourly', label: 'Every Hour' },
-                    { value: 'Daily', label: 'Once a Day (Daily)' },
-                    { value: 'Weekly', label: 'Once a Week' },
-                    { value: 'Manual', label: 'Manual trigger only' },
-                  ]}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: System Maintenance Tools */}
-        {activeTab === 'db' && (
-          <div className="space-y-5">
-            {/* Quick Actions Panel */}
-            <div className="flex flex-wrap gap-3.5 border-b pb-4">
-              <Button variant="primary" size="sm" onClick={handleManualBackup} className="gap-2">
-                <Database size={13} />
-                <span>Backup Local Database</span>
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={handleIntegrityCheck} className="gap-2">
-                <ShieldCheck size={13} />
-                <span>Verify Data Health</span>
-              </Button>
-
-              <Button variant="outline" size="sm" onClick={handleOptimizeDb} className="gap-2">
-                <RotateCcw size={13} />
-                <span>Optimize Storage & Speed</span>
-              </Button>
-            </div>
-
-            {/* Diagnostics result output */}
-            {integrityStatus.checked && (
-              <div className={`p-4 rounded border text-xs leading-relaxed font-sans space-y-1.5 ${
-                integrityStatus.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
-              }`}>
-                <div className="font-bold uppercase tracking-wider flex items-center gap-1.5">
-                  {integrityStatus.ok ? <ShieldCheck size={14} /> : <AlertOctagonIcon size={14} />}
-                  <span>System Health Check: {integrityStatus.ok ? 'Healthy & Verified' : 'Attention Required'}</span>
-                </div>
-                {integrityStatus.issues.length === 0 ? (
-                  <p>All business records, driver ledgers, customer balances, and transaction history are verified and operating smoothly.</p>
-                ) : (
-                  <ul className="list-disc pl-4 space-y-1 select-text">
-                    {integrityStatus.issues.map((issue, i) => (
-                      <li key={i}>{issue}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {/* Backups History Grid List */}
-            <div className="space-y-2">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Recent System Backups</span>
-              
-              <div className="border rounded overflow-hidden bg-gray-50">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100 border-b text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-                      <th className="p-2.5">Filename</th>
-                      <th className="p-2.5">Date Created</th>
-                      <th className="p-2.5">File Size</th>
-                      <th className="p-2.5 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {backups.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="p-6 text-center text-gray-400 bg-white select-none">
-                          No database backups discovered. Click "Backup Database Now" to generate one.
-                        </td>
-                      </tr>
-                    ) : (
-                      backups.map((bk) => (
-                        <tr key={bk.filename} className="border-b bg-white hover:bg-gray-50/50">
-                          <td className="p-2.5 font-mono text-[10px] select-text">{bk.filename}</td>
-                          <td className="p-2.5 text-gray-600">{new Date(bk.createdAt).toLocaleString()}</td>
-                          <td className="p-2.5 text-gray-600">{(bk.sizeBytes / 1024).toFixed(1)} KB</td>
-                          <td className="p-2.5 text-center">
-                            <button
-                              onClick={() => handleRestoreBackup(bk)}
-                              className="px-2 py-0.5 border text-[10px] font-bold text-blue-600 rounded bg-blue-50 border-blue-200 hover:bg-blue-100 hover:text-blue-700 cursor-pointer"
-                            >
-                              Restore Point
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: Keyboard Shortcuts Legend */}
+        {/* TAB 4: Keyboard Shortcuts Legend */}
         {activeTab === 'shortcuts' && (
           <div className="space-y-4 max-w-xl select-none">
             <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider border-b pb-2">Application Shortcuts Map</h3>
@@ -807,19 +427,7 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
-
-      <PinConfirmModal
-        isOpen={pinModalOpen}
-        title="Confirm Database Restore"
-        description="Please enter your Security PIN to authorize database snapshot restoration."
-        actionName="RESTORE_DATABASE"
-        onConfirm={executeRestoreAfterPin}
-        onClose={() => setPinModalOpen(false)}
-      />
     </div>
   )
 }
 
-function AlertOctagonIcon(props: any) {
-  return <Cpu {...props} className="text-red-500" />
-}

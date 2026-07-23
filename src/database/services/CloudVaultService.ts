@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, PutObjectCommand, ListObjectsV2Command, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -201,6 +201,11 @@ export class CloudVaultService {
       this.status.syncedSnapshotsCount += 1
       Logger.info(`Cloud Vault Sync completed successfully. Key: ${objectKey}, SHA256: ${sha256Hash}`)
 
+      // Rotate and keep configured retention limit of cloud snapshots
+      const dbSettings = await SettingsService.getSettings()
+      const retentionLimit = parseInt(dbSettings.cloud_vault_retention_count || '30', 10) || 30
+      await this.cleanupOldCloudSnapshots(retentionLimit)
+
       return { success: true, key: objectKey }
     } catch (err: any) {
       const errMsg = err.message || 'Unknown Cloud Vault sync error'
@@ -238,6 +243,31 @@ export class CloudVaultService {
     } catch (err: any) {
       Logger.error(`Failed to list Cloud Vault snapshots: ${err.message}`)
       return []
+    }
+  }
+
+  /**
+   * Rotates old cloud snapshots in Cloudflare R2, retaining max 30 snapshots.
+   */
+  static async cleanupOldCloudSnapshots(maxCount = 30): Promise<void> {
+    try {
+      const snapshots = await this.listSnapshots()
+      if (snapshots.length > maxCount) {
+        const toDelete = snapshots.slice(maxCount)
+        const config = await this.getSettings()
+        const client = this.getS3Client(config)
+
+        for (const snap of toDelete) {
+          const deleteCmd = new DeleteObjectCommand({
+            Bucket: config.bucketName,
+            Key: snap.key,
+          })
+          await client.send(deleteCmd)
+          Logger.info(`Rotated and deleted old cloud vault snapshot: ${snap.key}`)
+        }
+      }
+    } catch (err: any) {
+      Logger.error(`Failed to rotate old cloud vault snapshots: ${err.message}`)
     }
   }
 

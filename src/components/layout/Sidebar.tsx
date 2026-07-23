@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
+  HardDrive,
   Info,
   Lock,
 } from 'lucide-react'
@@ -32,6 +33,7 @@ const navItems = [
   { path: '/inventory', label: 'Inventory', icon: Database },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/audit', label: 'Audit Trail', icon: History },
+  { path: '/backups', label: 'Backups', icon: HardDrive },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/about', label: 'About', icon: Info },
 ]

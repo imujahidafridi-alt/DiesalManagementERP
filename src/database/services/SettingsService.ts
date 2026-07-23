@@ -27,7 +27,8 @@ export class SettingsService {
         price_precision: '2',
         negative_inventory_policy: 'BLOCK', // BLOCK or ALLOW
         default_backup_folder: '',
-        max_backup_count: '10',
+        max_backup_count: '30',
+        cloud_vault_retention_count: '30',
         startup_backup_enabled: 'false',
         shutdown_backup_enabled: 'false',
         row_density: 'compact', // compact or comfortable

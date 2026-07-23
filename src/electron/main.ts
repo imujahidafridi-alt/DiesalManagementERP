@@ -78,25 +78,9 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  // 5-minute periodic Cloud Vault backup heartbeat
-  setInterval(() => {
-    CloudVaultService.syncSnapshot('heartbeat').catch(() => {})
-  }, 5 * 60 * 1000)
-
-  // Initial cloud sync on startup after 10 seconds
-  setTimeout(() => {
-    CloudVaultService.syncSnapshot('startup').catch(() => {})
-  }, 10000)
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
-
-app.on('before-quit', async () => {
-  try {
-    await CloudVaultService.syncSnapshot('shutdown')
-  } catch {}
 })
 
 app.on('window-all-closed', () => {
@@ -214,7 +198,23 @@ handleIpc('reports:exportExcel', async (gridId: string, search: string, filters:
 // 9. Backups & Cloud Vault Streaming
 handleIpc('backup:create', async (manualReason?: string, maxCount?: number) => BackupService.createBackup(manualReason, maxCount))
 handleIpc('backup:list', async () => BackupService.listBackups())
-handleIpc('backup:restore', async (filePath: string) => BackupService.restoreBackup(filePath))
+handleIpc('backup:delete', async (filePath: string) => BackupService.deleteBackup(filePath))
+function reloadAppWindow() {
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      Logger.info('Reloading main window renderer after database restore')
+      mainWindow.webContents.reloadIgnoringCache()
+    }
+  }, 400)
+}
+
+handleIpc('backup:restore', async (filePath: string) => {
+  const ok = await BackupService.restoreBackup(filePath)
+  if (ok) {
+    reloadAppWindow()
+  }
+  return ok
+})
 handleIpc('backup:getFolder', async () => BackupService.getBackupFolder())
 handleIpc('backup:setFolder', async (folder: string) => BackupService.setBackupFolder(folder))
 
@@ -224,7 +224,13 @@ handleIpc('cloudVault:testConnection', async (config: CloudVaultConfig) => Cloud
 handleIpc('cloudVault:getStatus', async () => CloudVaultService.getStatus())
 handleIpc('cloudVault:syncNow', async (manualReason?: string) => CloudVaultService.syncSnapshot(manualReason))
 handleIpc('cloudVault:listSnapshots', async () => CloudVaultService.listSnapshots())
-handleIpc('cloudVault:restoreSnapshot', async (objectKey: string) => CloudVaultService.restoreFromSnapshot(objectKey))
+handleIpc('cloudVault:restoreSnapshot', async (objectKey: string) => {
+  const ok = await CloudVaultService.restoreFromSnapshot(objectKey)
+  if (ok) {
+    reloadAppWindow()
+  }
+  return ok
+})
 
 // 10. Integrity & Diagnostics
 handleIpc('db:integrityCheck', async () => BackupService.checkIntegrity())
