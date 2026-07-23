@@ -24,115 +24,126 @@ const LoadingFallback = () => (
   </div>
 )
 
-export const router = createHashRouter([
+export const router = createHashRouter(
+  [
+    {
+      path: '/',
+      element: <AppShell />,
+      children: [
+        {
+          index: true,
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <DashboardPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'purchases',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <PurchasesPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'transfers',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <TransfersPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'sales',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <SalesPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'drivers',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <DriversPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'customers',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <CustomersPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'suppliers',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <SuppliersPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'inventory',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <InventoryPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'reports',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <ReportsPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'settings',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <SettingsPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'audit',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <AuditPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'import',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <ImportWizardPage />
+            </Suspense>
+          ),
+        },
+        {
+          path: 'about',
+          element: (
+            <Suspense fallback={<LoadingFallback />}>
+              <AboutPage />
+            </Suspense>
+          ),
+        },
+      ],
+    },
+  ],
   {
-    path: '/',
-    element: <AppShell />,
-    children: [
-      {
-        index: true,
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <DashboardPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'purchases',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <PurchasesPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'transfers',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <TransfersPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'sales',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <SalesPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'drivers',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <DriversPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'customers',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <CustomersPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'suppliers',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <SuppliersPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'inventory',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <InventoryPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'reports',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <ReportsPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'settings',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <SettingsPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'audit',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <AuditPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'import',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <ImportWizardPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: 'about',
-        element: (
-          <Suspense fallback={<LoadingFallback />}>
-            <AboutPage />
-          </Suspense>
-        ),
-      },
-    ],
-  },
-])
+    future: {
+      v7_relativeSplatPath: true,
+      v7_fetcherPersist: true,
+      v7_normalizeFormMethod: true,
+      v7_partialHydration: true,
+      v7_skipActionErrorRevalidation: true,
+    },
+  }
+)

@@ -46,7 +46,11 @@ export const SvgChart: React.FC<SvgChartProps> = ({
   // Donut Chart Drawing Logic
   // ----------------------------------------------------
   if (type === 'donut') {
-    const total = data.reduce((sum, item) => sum + item.value, 0)
+    const validDonutData = data.map((d) => ({
+      ...d,
+      value: Number.isFinite(Number(d.value)) ? Math.max(0, Number(d.value)) : 0,
+    }))
+    const total = validDonutData.reduce((sum, item) => sum + item.value, 0)
     let accumulatedAngle = 0
     const size = height
     const center = size / 2
@@ -70,7 +74,7 @@ export const SvgChart: React.FC<SvgChartProps> = ({
           {total === 0 ? (
             <circle cx={center} cy={center} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
           ) : (
-            data.map((item, idx) => {
+            validDonutData.map((item, idx) => {
               const percentage = item.value / total
               const angle = percentage * 360
               const colorCode = categoryColors[idx % categoryColors.length]
@@ -120,7 +124,7 @@ export const SvgChart: React.FC<SvgChartProps> = ({
 
         {/* Legend */}
         <div className="flex flex-col gap-1.5 text-[10px] text-gray-500 max-h-40 overflow-y-auto pr-2">
-          {data.map((item, idx) => {
+          {validDonutData.map((item, idx) => {
             const pct = total > 0 ? Math.round((item.value / total) * 100) : 0
             const colorCode = categoryColors[idx % categoryColors.length]
             return (
@@ -139,14 +143,24 @@ export const SvgChart: React.FC<SvgChartProps> = ({
   // ----------------------------------------------------
   // Line / Area / Bar Chart Layout Math
   // ----------------------------------------------------
+  const safeData = data.map((d) => ({
+    ...d,
+    value: Number.isFinite(Number(d.value)) ? Number(d.value) : 0,
+    secondaryValue: d.secondaryValue !== undefined && Number.isFinite(Number(d.secondaryValue))
+      ? Number(d.secondaryValue)
+      : undefined,
+  }))
+
   const width = 450 // base SVG coordinate width
   const plotWidth = width - paddingLeft - paddingRight
   const plotHeight = height - paddingTop - paddingBottom
 
-  const maxVal = Math.max(
-    ...data.flatMap((d) => [d.value, d.secondaryValue || 0]),
-    1 // avoid division by zero
-  )
+  const valuesList = safeData.flatMap((d) => [
+    d.value,
+    d.secondaryValue !== undefined ? d.secondaryValue : 0,
+  ])
+  const maxVal = Math.max(...valuesList, 1) // avoid division by zero or NaN
+
   // Nice grid increments
   const gridTicks = 4
   const gridLines = Array.from({ length: gridTicks + 1 }, (_, i) => {
@@ -157,12 +171,14 @@ export const SvgChart: React.FC<SvgChartProps> = ({
 
   // Horizontal coordinates mapping
   const getX = (index: number) => {
-    if (data.length <= 1) return paddingLeft + plotWidth / 2
-    return paddingLeft + (plotWidth / (data.length - 1)) * index
+    if (safeData.length <= 1) return paddingLeft + plotWidth / 2
+    return paddingLeft + (plotWidth / (safeData.length - 1)) * index
   }
 
   const getY = (val: number) => {
-    return height - paddingBottom - (val / maxVal) * plotHeight
+    const safeVal = Number.isFinite(val) ? val : 0
+    const safeMax = Number.isFinite(maxVal) && maxVal > 0 ? maxVal : 1
+    return height - paddingBottom - (safeVal / safeMax) * plotHeight
   }
 
   return (
@@ -192,12 +208,12 @@ export const SvgChart: React.FC<SvgChartProps> = ({
         ))}
 
         {/* Draw X axis labels (Max 7 to prevent text collisions) */}
-        {data.map((item, idx) => {
-          const step = Math.max(1, Math.ceil(data.length / 8))
-          if (idx % step !== 0 && idx !== data.length - 1) return null
+        {safeData.map((item, idx) => {
+          const step = Math.max(1, Math.ceil(safeData.length / 8))
+          if (idx % step !== 0 && idx !== safeData.length - 1) return null
 
           const x = type === 'bar' 
-            ? paddingLeft + (plotWidth / data.length) * (idx + 0.5) 
+            ? paddingLeft + (plotWidth / safeData.length) * (idx + 0.5) 
             : getX(idx)
 
           return (
@@ -223,8 +239,8 @@ export const SvgChart: React.FC<SvgChartProps> = ({
               <path
                 d={`
                   M ${getX(0)} ${height - paddingBottom}
-                  ${data.map((item, idx) => `L ${getX(idx)} ${getY(item.value)}`).join(' ')}
-                  L ${getX(data.length - 1)} ${height - paddingBottom}
+                  ${safeData.map((item, idx) => `L ${getX(idx)} ${getY(item.value)}`).join(' ')}
+                  L ${getX(safeData.length - 1)} ${height - paddingBottom}
                   Z
                 `}
                 fill={`${color}15`} // add opacity
@@ -234,7 +250,7 @@ export const SvgChart: React.FC<SvgChartProps> = ({
 
             {/* Main Value Line */}
             <path
-              d={data.map((item, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(item.value)}`).join(' ')}
+              d={safeData.map((item, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(item.value)}`).join(' ')}
               fill="none"
               stroke={color}
               strokeWidth={2}
@@ -243,9 +259,9 @@ export const SvgChart: React.FC<SvgChartProps> = ({
             />
 
             {/* Secondary Value Line (if present) */}
-            {data.some((d) => d.secondaryValue !== undefined) && (
+            {safeData.some((d) => d.secondaryValue !== undefined) && (
               <path
-                d={data.map((item, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(item.secondaryValue || 0)}`).join(' ')}
+                d={safeData.map((item, idx) => `${idx === 0 ? 'M' : 'L'} ${getX(idx)} ${getY(item.secondaryValue || 0)}`).join(' ')}
                 fill="none"
                 stroke={secondaryColor}
                 strokeWidth={1.5}
@@ -256,8 +272,8 @@ export const SvgChart: React.FC<SvgChartProps> = ({
             )}
 
             {/* Interaction Dots */}
-            {data.map((item, idx) => {
-              if (data.length > 25 && idx % 3 !== 0) return null // thin out dots
+            {safeData.map((item, idx) => {
+              if (safeData.length > 25 && idx % 3 !== 0) return null // thin out dots
               const x = getX(idx)
               const y = getY(item.value)
               return (
@@ -283,11 +299,11 @@ export const SvgChart: React.FC<SvgChartProps> = ({
             ---------------------------------------------------- */}
         {type === 'bar' && (
           <>
-            {data.map((item, idx) => {
-              const barWidth = Math.max(2, (plotWidth / data.length) * 0.6)
-              const x = paddingLeft + (plotWidth / data.length) * idx + (plotWidth / data.length - barWidth) / 2
+            {safeData.map((item, idx) => {
+              const barWidth = Math.max(2, (plotWidth / safeData.length) * 0.6)
+              const x = paddingLeft + (plotWidth / safeData.length) * idx + (plotWidth / safeData.length - barWidth) / 2
               const y = getY(item.value)
-              const barHeight = height - paddingBottom - y
+              const barHeight = Math.max(0, height - paddingBottom - y)
 
               return (
                 <rect
@@ -310,3 +326,4 @@ export const SvgChart: React.FC<SvgChartProps> = ({
     </div>
   )
 }
+

@@ -530,6 +530,8 @@ export class ReportService {
         .where(and(like(transactions.transactionDate, `${mon}%`), isNull(transactions.deletedAt)))
       return {
         label: mon,
+        value: res?.sales || 0,
+        secondaryValue: res?.purchases || 0,
         purchases: res?.purchases || 0,
         sales: res?.sales || 0,
       }
