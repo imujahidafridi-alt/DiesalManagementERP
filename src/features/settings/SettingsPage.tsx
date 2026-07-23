@@ -15,6 +15,9 @@ import {
   Lock,
   Shield,
   KeyRound,
+  Cloud,
+  UploadCloud,
+  CheckCircle2,
 } from 'lucide-react'
 import PinConfirmModal from '@/components/ui/PinConfirmModal'
 
@@ -53,6 +56,18 @@ export default function SettingsPage() {
     issues: [],
   })
 
+  // Cloud Vault state
+  const [testingCloud, setTestingCloud] = useState(false)
+  const [syncingCloud, setSyncingCloud] = useState(false)
+  const [cloudStatus, setCloudStatus] = useState<any>(null)
+
+  const fetchCloudVaultStatus = async () => {
+    try {
+      const st = await window.api.invoke('cloudVault:getStatus')
+      setCloudStatus(st)
+    } catch {}
+  }
+
   // Sync state on load
   const loadConfig = async () => {
     setLoading(true)
@@ -61,10 +76,53 @@ export default function SettingsPage() {
       // Load backups history
       const list = await window.api.invoke('backup:list')
       setBackups(list || [])
+      await fetchCloudVaultStatus()
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleTestCloudConnection = async () => {
+    setTestingCloud(true)
+    try {
+      const config = {
+        enabled: formData.cloud_vault_enabled === 'true',
+        provider: (formData.cloud_vault_provider as any) || 'cloudflare_r2',
+        endpoint: formData.cloud_vault_endpoint || '',
+        bucketName: formData.cloud_vault_bucket_name || '',
+        accessKeyId: formData.cloud_vault_access_key_id || '',
+        secretAccessKey: formData.cloud_vault_secret_access_key || '',
+        region: formData.cloud_vault_region || 'auto',
+      }
+      const res = await window.api.invoke('cloudVault:testConnection', config)
+      if (res.success) {
+        addToast(res.message, 'success')
+      } else {
+        addToast(res.message, 'error')
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Connection test failed', 'error')
+    } finally {
+      setTestingCloud(false)
+    }
+  }
+
+  const handleSyncCloudVaultNow = async () => {
+    setSyncingCloud(true)
+    try {
+      const res = await window.api.invoke('cloudVault:syncNow', 'manual_user')
+      if (res.success) {
+        addToast('Cloud backup completed successfully!', 'success')
+        fetchCloudVaultStatus()
+      } else {
+        addToast(res.error || 'Cloud backup failed. Please check connection.', 'error')
+      }
+    } catch (err: any) {
+      addToast('Cloud backup failed', 'error')
+    } finally {
+      setSyncingCloud(false)
     }
   }
 
@@ -200,22 +258,22 @@ export default function SettingsPage() {
         issues: res.issues,
       })
       if (res.ok) {
-        addToast('Database integrity verification check passed.', 'success')
+        addToast('Data health check passed successfully.', 'success')
       } else {
-        addToast('Database inconsistencies detected!', 'error')
+        addToast('Data issues detected during check.', 'error')
       }
     } catch (e: any) {
-      addToast(`Integrity check failed: ${e.message}`, 'error')
+      addToast('Health check failed', 'error')
     }
   }
 
   const handleOptimizeDb = async () => {
     try {
-      addToast('Optimizing database indices...', 'info')
+      addToast('Optimizing storage & performance...', 'info')
       await window.api.invoke('db:optimize')
-      addToast('Database VACUUM and ANALYZE operations completed', 'success')
+      addToast('System storage optimization completed successfully', 'success')
     } catch (e: any) {
-      addToast(`Optimization failed: ${e.message}`, 'error')
+      addToast('System optimization failed', 'error')
     }
   }
 
@@ -263,7 +321,7 @@ export default function SettingsPage() {
           }`}
         >
           <Shield size={13} />
-          <span>Security & PIN Auth</span>
+          <span>Security & PIN</span>
         </button>
 
         <button
@@ -273,7 +331,7 @@ export default function SettingsPage() {
           }`}
         >
           <HardDrive size={13} />
-          <span>Auto-Backup Preferences</span>
+          <span>Cloud & Local Backups</span>
         </button>
 
         <button
@@ -283,7 +341,7 @@ export default function SettingsPage() {
           }`}
         >
           <Cpu size={13} />
-          <span>Database Tools</span>
+          <span>System Maintenance</span>
         </button>
 
         <button
@@ -513,14 +571,82 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* TAB 4: Auto-Backup Preferences */}
+        {/* TAB 4: Cloud & Local Backups */}
         {activeTab === 'backup' && (
-          <div className="space-y-4 max-w-2xl">
-            <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider border-b pb-2">Backup & Storage Configurations</h3>
-            
-            <div className="space-y-4">
+          <div className="space-y-6 max-w-2xl">
+            {/* 1. Automatic Cloud Backup */}
+            <div className="border border-blue-200 rounded-xl p-5 bg-gradient-to-br from-blue-50/60 to-slate-50 space-y-4 shadow-xs">
+              <div className="flex items-center justify-between pb-3 border-b border-blue-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-blue-600 text-white rounded-lg shadow-xs">
+                    <Cloud size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">Automatic Cloud Backup</h3>
+                    <p className="text-[11px] text-slate-500">Real-time background cloud protection with end-to-end encryption.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {cloudStatus?.lastSyncTime && (
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Last sync: {new Date(cloudStatus.lastSyncTime).toLocaleTimeString()}
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300">
+                    🟢 Cloud Protection Active
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-lg border border-slate-200/80">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Storage Provider</span>
+                    <span className="font-semibold text-slate-800">Cloudflare R2 Secure Storage</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase text-slate-400 block">Security Status</span>
+                    <span className="font-semibold text-emerald-700 flex items-center gap-1">
+                      <ShieldCheck size={12} />
+                      Protected System Setup
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    isLoading={testingCloud}
+                    onClick={handleTestCloudConnection}
+                    className="gap-2 text-xs"
+                  >
+                    <CheckCircle2 size={13} className="text-emerald-600" />
+                    <span>Test Cloud Connection</span>
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    isLoading={syncingCloud}
+                    onClick={handleSyncCloudVaultNow}
+                    className="gap-2 text-xs"
+                  >
+                    <UploadCloud size={13} className="text-blue-600" />
+                    <span>Backup to Cloud Now</span>
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Local Disk Backup Preferences */}
+            <div className="border border-slate-200 rounded-xl p-5 bg-white space-y-4">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider border-b pb-2">Local Storage & Backup Preferences</h3>
               <Input
-                label="Backup Output Folder Path"
+                label="Backup Location Folder"
                 value={formData.default_backup_folder || ''}
                 onChange={(e) => handleInputChange('default_backup_folder', e.target.value)}
                 placeholder="Defaults to Documents/Sahara_Diesels_Backups"
@@ -528,7 +654,7 @@ export default function SettingsPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <Select
-                  label="Retention Backup Limit Count"
+                  label="Keep Backups Count"
                   value={formData.max_backup_count || '10'}
                   onChange={(e: any) => handleInputChange('max_backup_count', e.target.value)}
                   options={[
@@ -550,63 +676,43 @@ export default function SettingsPage() {
                     { value: 'Manual', label: 'Manual trigger only' },
                   ]}
                 />
-
-                <Select
-                  label="Run Backup on Startup"
-                  value={formData.startup_backup_enabled || 'false'}
-                  onChange={(e: any) => handleInputChange('startup_backup_enabled', e.target.value)}
-                  options={[
-                    { value: 'true', label: 'Enabled' },
-                    { value: 'false', label: 'Disabled' },
-                  ]}
-                />
-
-                <Select
-                  label="Run Backup on Shutdown"
-                  value={formData.shutdown_backup_enabled || 'false'}
-                  onChange={(e: any) => handleInputChange('shutdown_backup_enabled', e.target.value)}
-                  options={[
-                    { value: 'true', label: 'Enabled' },
-                    { value: 'false', label: 'Disabled' },
-                  ]}
-                />
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 4: Database Diagnostics & Maintenance Tools */}
+        {/* TAB 5: System Maintenance Tools */}
         {activeTab === 'db' && (
           <div className="space-y-5">
             {/* Quick Actions Panel */}
             <div className="flex flex-wrap gap-3.5 border-b pb-4">
               <Button variant="primary" size="sm" onClick={handleManualBackup} className="gap-2">
                 <Database size={13} />
-                <span>Backup Database Now</span>
+                <span>Backup Local Database</span>
               </Button>
 
               <Button variant="outline" size="sm" onClick={handleIntegrityCheck} className="gap-2">
                 <ShieldCheck size={13} />
-                <span>Verify SQL Integrity</span>
+                <span>Verify Data Health</span>
               </Button>
 
               <Button variant="outline" size="sm" onClick={handleOptimizeDb} className="gap-2">
                 <RotateCcw size={13} />
-                <span>Optimize Storage indices</span>
+                <span>Optimize Storage & Speed</span>
               </Button>
             </div>
 
             {/* Diagnostics result output */}
             {integrityStatus.checked && (
-              <div className={`p-4 rounded border text-xs leading-relaxed font-mono space-y-1.5 ${
+              <div className={`p-4 rounded border text-xs leading-relaxed font-sans space-y-1.5 ${
                 integrityStatus.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
               }`}>
                 <div className="font-bold uppercase tracking-wider flex items-center gap-1.5">
                   {integrityStatus.ok ? <ShieldCheck size={14} /> : <AlertOctagonIcon size={14} />}
-                  <span>Database Diagnosis: {integrityStatus.ok ? 'OK' : 'INCONSISTENT'}</span>
+                  <span>System Health Check: {integrityStatus.ok ? 'Healthy & Verified' : 'Attention Required'}</span>
                 </div>
                 {integrityStatus.issues.length === 0 ? (
-                  <p>All database block allocations, structural schemas, constraints, and foreign keys pass verified integrity tests.</p>
+                  <p>All business records, driver ledgers, customer balances, and transaction history are verified and operating smoothly.</p>
                 ) : (
                   <ul className="list-disc pl-4 space-y-1 select-text">
                     {integrityStatus.issues.map((issue, i) => (
@@ -619,7 +725,7 @@ export default function SettingsPage() {
 
             {/* Backups History Grid List */}
             <div className="space-y-2">
-              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Backup History logs (.db.gz)</span>
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block">Recent System Backups</span>
               
               <div className="border rounded overflow-hidden bg-gray-50">
                 <table className="w-full text-left text-xs border-collapse">

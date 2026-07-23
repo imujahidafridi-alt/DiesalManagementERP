@@ -1,5 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
+import dotenv from 'dotenv'
+
+// Load environment variables from .env
+dotenv.config()
+
 import { runMigrations } from '../database/migrator'
 import { DriverService } from '../database/services/DriverService'
 import { CustomerService } from '../database/services/CustomerService'
@@ -9,9 +14,9 @@ import { InventoryService } from '../database/services/InventoryService'
 import { AuditService } from '../database/services/AuditService'
 import { ReportService } from '../database/services/ReportService'
 import { BackupService } from '../database/services/BackupService'
+import { CloudVaultService, CloudVaultConfig } from '../database/services/CloudVaultService'
 import { SettingsService } from '../database/services/SettingsService'
 import { PinService } from '../database/services/PinService'
-import { ImportService } from '../database/services/ImportService'
 import { DataGridService } from '../database/services/DataGridService'
 import { ExportService } from '../database/services/ExportService'
 import { initMainLogger, Logger } from '../utils/Logger'
@@ -73,9 +78,25 @@ app.whenReady().then(async () => {
 
   createWindow()
 
+  // 5-minute periodic Cloud Vault backup heartbeat
+  setInterval(() => {
+    CloudVaultService.syncSnapshot('heartbeat').catch(() => {})
+  }, 5 * 60 * 1000)
+
+  // Initial cloud sync on startup after 10 seconds
+  setTimeout(() => {
+    CloudVaultService.syncSnapshot('startup').catch(() => {})
+  }, 10000)
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', async () => {
+  try {
+    await CloudVaultService.syncSnapshot('shutdown')
+  } catch {}
 })
 
 app.on('window-all-closed', () => {
@@ -190,12 +211,20 @@ handleIpc('reports:exportExcel', async (gridId: string, search: string, filters:
   return { success: true, filePath: result.filePath }
 })
 
-// 9. Backups
+// 9. Backups & Cloud Vault Streaming
 handleIpc('backup:create', async (manualReason?: string, maxCount?: number) => BackupService.createBackup(manualReason, maxCount))
 handleIpc('backup:list', async () => BackupService.listBackups())
 handleIpc('backup:restore', async (filePath: string) => BackupService.restoreBackup(filePath))
 handleIpc('backup:getFolder', async () => BackupService.getBackupFolder())
 handleIpc('backup:setFolder', async (folder: string) => BackupService.setBackupFolder(folder))
+
+handleIpc('cloudVault:getSettings', async () => CloudVaultService.getSettings())
+handleIpc('cloudVault:saveSettings', async (config: CloudVaultConfig, user: string) => CloudVaultService.saveSettings(config, user))
+handleIpc('cloudVault:testConnection', async (config: CloudVaultConfig) => CloudVaultService.testConnection(config))
+handleIpc('cloudVault:getStatus', async () => CloudVaultService.getStatus())
+handleIpc('cloudVault:syncNow', async (manualReason?: string) => CloudVaultService.syncSnapshot(manualReason))
+handleIpc('cloudVault:listSnapshots', async () => CloudVaultService.listSnapshots())
+handleIpc('cloudVault:restoreSnapshot', async (objectKey: string) => CloudVaultService.restoreFromSnapshot(objectKey))
 
 // 10. Integrity & Diagnostics
 handleIpc('db:integrityCheck', async () => BackupService.checkIntegrity())
@@ -215,11 +244,7 @@ handleIpc('pin:lockSession', async () => PinService.lockSession())
 handleIpc('pin:unlockSession', async () => PinService.unlockSession())
 handleIpc('pin:setInactivityTimeout', async (minutes: number, user?: string) => PinService.setInactivityTimeout(minutes, user))
 
-// 12. Data Imports
-handleIpc('import:execute', async (entityType: string, rows: any[], user: string) => ImportService.importRecords(entityType, rows, user))
-handleIpc('import:smartExecute', async (records: any[], user: string, autoCreateMasters: boolean) => ImportService.importSmartRecords(records, user, autoCreateMasters))
-
-// 13. System Actions
+// 12. System Actions
 handleIpc('app:reboot', async () => {
   app.relaunch()
   app.exit(0)

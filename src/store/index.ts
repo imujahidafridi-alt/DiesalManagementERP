@@ -411,65 +411,66 @@ export const useAppStore = create<AppState>((set, get) => ({
   createDriver: async (data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:create', data, operator)
-    await get().fetchDrivers()
+    await get().fetchDrivers(true)
+    await get().fetchInventorySnapshots(true)
     return res
   },
 
   updateDriver: async (id, data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:update', id, data, operator)
-    await get().fetchDrivers()
+    await get().fetchDrivers(true)
+    await get().fetchInventorySnapshots(true)
     return res
   },
 
   deleteDriver: async (id) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('drivers:delete', id, operator)
-    await get().fetchDrivers()
+    await get().fetchDrivers(true)
+    await get().fetchInventorySnapshots(true)
     return res
   },
-
-
 
   createCustomer: async (data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:create', data, operator)
-    await get().fetchCustomers()
+    await get().fetchCustomers(true)
     return res
   },
 
   updateCustomer: async (id, data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:update', id, data, operator)
-    await get().fetchCustomers()
+    await get().fetchCustomers(true)
     return res
   },
 
   deleteCustomer: async (id) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('customers:delete', id, operator)
-    await get().fetchCustomers()
+    await get().fetchCustomers(true)
     return res
   },
 
   createSupplier: async (data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:create', data, operator)
-    await get().fetchSuppliers()
+    await get().fetchSuppliers(true)
     return res
   },
 
   updateSupplier: async (id, data) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:update', id, data, operator)
-    await get().fetchSuppliers()
+    await get().fetchSuppliers(true)
     return res
   },
 
   deleteSupplier: async (id) => {
     const operator = get().currentOperator || 'Haroon Wazir'
     const res = await window.api.invoke('suppliers:delete', id, operator)
-    await get().fetchSuppliers()
+    await get().fetchSuppliers(true)
     return res
   },
 

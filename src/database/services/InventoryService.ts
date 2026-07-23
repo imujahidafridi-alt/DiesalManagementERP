@@ -3,6 +3,7 @@ import { InventoryRepository } from '../repositories/InventoryRepository'
 import { Inventory } from '../repositories/interfaces'
 import { InsufficientInventoryError } from '../errors'
 import { SettingsService } from './SettingsService'
+import { CostingEngine } from './CostingEngine'
 
 const txRepo = new TransactionRepository()
 const invRepo = new InventoryRepository()
@@ -36,7 +37,7 @@ export class InventoryService {
 
   /**
    * Derive Weighted Average Cost (WAC) for a location by iterating chronologically.
-   * Formula: New WAC = (Prior Stock * Prior WAC + Quantity In * Inflow Cost) / (Prior Stock + Quantity In)
+   * Uses central CostingEngine.
    */
   static async calculateWeightedAverageCost(item: string, upToDate?: string): Promise<number> {
     const txs = await txRepo.listByEntity(item)
@@ -52,19 +53,13 @@ export class InventoryService {
 
       if (tx.destinationId === item) {
         const qtyIn = tx.quantity
-        // Purchases establish unitCost, transfers carry averageCostSnapshot, opening balance has unitCost
         const costIn = tx.transactionType === 'PURCHASE' || tx.transactionType === 'OPENING_BALANCE' 
           ? tx.unitCost 
           : tx.averageCostSnapshot
 
-        const previousStock = Math.max(0, stock)
+        wac = CostingEngine.calculateNewWac(stock, wac, qtyIn, costIn)
         stock += qtyIn
-
-        if (stock > 0 && qtyIn > 0 && costIn > 0) {
-          wac = Math.round((previousStock * wac + qtyIn * costIn) / stock)
-        }
       } else if (tx.sourceId === item) {
-        // Sales and Transfers consume stock at the current WAC, keeping the WAC constant
         stock = stock - tx.quantity
       }
     }

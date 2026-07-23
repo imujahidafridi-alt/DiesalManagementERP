@@ -1,17 +1,15 @@
 import { db, runInTransaction, sqlite } from '../db'
-import { transactions, inventory as inventoryTable, auditLogs } from '../schema/schema'
+import { transactions, inventory as inventoryTable, drivers as driversTable, auditLogs } from '../schema/schema'
 import { TransactionRepository } from '../repositories/TransactionRepository'
 import { DriverRepository } from '../repositories/DriverRepository'
 import { CustomerRepository } from '../repositories/CustomerRepository'
 import { SupplierRepository } from '../repositories/SupplierRepository'
 import { InventoryService } from './InventoryService'
+import { CostingEngine } from './CostingEngine'
 import { SettingsService } from './SettingsService'
+import { CloudVaultService } from './CloudVaultService'
 import { generateNextTransactionNumber } from '../utils/numbering'
-import {
-  validatePurchaseSchema,
-  validateSaleSchema,
-  validateTransferSchema,
-} from '../schema/validation'
+import { validatePurchaseSchema } from '../schema/validation'
 import {
   ValidationError,
   DriverNotFoundError,
@@ -188,23 +186,6 @@ export class TransactionService {
 
     return runInTransaction(async () => {
       const txNumber = await generateNextTransactionNumber('TRANSFER', db)
-      const sourceWac = await InventoryService.calculateWeightedAverageCost(data.fromDriverId)
-
-      const businessData = {
-        sourceType: 'DRIVER' as const,
-        sourceId: data.fromDriverId,
-        destinationType: 'DRIVER' as const,
-        destinationId: data.toDriverId,
-        quantity: data.quantity,
-        unitCost: sourceWac,
-        sellingRate: 0,
-      }
-
-      const valid = validateTransferSchema.safeParse(businessData)
-      if (!valid.success) {
-        throw new ValidationError('Transfer validation failed', valid.error.flatten().fieldErrors)
-      }
-
       const txId = crypto.randomUUID()
       const now = new Date().toISOString()
 
@@ -217,9 +198,9 @@ export class TransactionService {
         destinationType: 'DRIVER' as const,
         destinationId: data.toDriverId,
         quantity: data.quantity,
-        unitCost: sourceWac,
+        unitCost: 0,
         sellingRate: 0,
-        averageCostSnapshot: sourceWac,
+        averageCostSnapshot: 0,
         profitSnapshot: 0,
         referenceNumber: data.vehicleNumber || null,
         referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
@@ -232,7 +213,7 @@ export class TransactionService {
       }
 
       await db.insert(transactions).values(ledgerRecord)
-      await this.recalculateLedgerInternal()
+      await this.recalculateLedgerInternal(data.transactionDate)
 
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
@@ -277,24 +258,6 @@ export class TransactionService {
 
     return runInTransaction(async () => {
       const txNumber = await generateNextTransactionNumber('SALE', db)
-      const sourceWac = await InventoryService.calculateWeightedAverageCost(data.driverId)
-
-      const businessData = {
-        sourceType: 'DRIVER' as const,
-        sourceId: data.driverId,
-        destinationType: 'CUSTOMER' as const,
-        destinationId: data.customerId,
-        quantity: data.quantity,
-        unitCost: sourceWac,
-        sellingRate: data.sellingRate,
-      }
-
-      const valid = validateSaleSchema.safeParse(businessData)
-      if (!valid.success) {
-        throw new ValidationError('Sale validation failed', valid.error.flatten().fieldErrors)
-      }
-
-      const profit = Math.round(data.quantity * (data.sellingRate - sourceWac))
       const txId = crypto.randomUUID()
       const now = new Date().toISOString()
 
@@ -307,10 +270,10 @@ export class TransactionService {
         destinationType: 'CUSTOMER' as const,
         destinationId: data.customerId,
         quantity: data.quantity,
-        unitCost: sourceWac,
+        unitCost: 0,
         sellingRate: data.sellingRate,
-        averageCostSnapshot: sourceWac,
-        profitSnapshot: profit,
+        averageCostSnapshot: 0,
+        profitSnapshot: 0,
         referenceNumber: data.vehicleNumber || null,
         referenceType: data.vehicleNumber ? 'VEHICLE_NO' : null,
         transactionDate: data.transactionDate,
@@ -322,7 +285,7 @@ export class TransactionService {
       }
 
       await db.insert(transactions).values(ledgerRecord)
-      await this.recalculateLedgerInternal()
+      await this.recalculateLedgerInternal(data.transactionDate)
 
       await db.insert(auditLogs).values({
         id: crypto.randomUUID(),
@@ -671,7 +634,11 @@ export class TransactionService {
    * Retroactively recalculate WAC snapshots and profits for all active transactions chronologically.
    * Internal — must be called inside runInTransaction or normal context.
    */
-  static async recalculateLedgerInternal(): Promise<void> {
+  /**
+   * Retroactively recalculate WAC snapshots and profits for active transactions chronologically.
+   * Internal — must be called inside runInTransaction or normal context.
+   */
+  static async recalculateLedgerInternal(_fromDate?: string): Promise<void> {
     // 1. Fetch & sort active transactions
     const activeTxs = await db
       .select()
@@ -696,7 +663,21 @@ export class TransactionService {
       'UPDATE transactions SET unit_cost = ?, average_cost_snapshot = ?, profit_snapshot = ? WHERE id = ?'
     )
 
+    // Pre-initialize runningState with all existing inventory items and active drivers to 0 stock & 0 WAC
     const runningState: Record<string, LocationState> = {}
+
+    const existingInventory = await db.select({ item: inventoryTable.item }).from(inventoryTable)
+    for (const inv of existingInventory) {
+      runningState[inv.item] = { stock: 0, wac: 0, cumulative_volume: 0, cumulative_value: 0 }
+    }
+
+    const activeDrivers = await db.select({ id: driversTable.id }).from(driversTable).where(isNull(driversTable.deletedAt))
+    for (const d of activeDrivers) {
+      if (!runningState[d.id]) {
+        runningState[d.id] = { stock: 0, wac: 0, cumulative_volume: 0, cumulative_value: 0 }
+      }
+    }
+
     const getSnap = (locationId: string): LocationState => {
       if (!runningState[locationId])
         runningState[locationId] = { stock: 0, wac: 0, cumulative_volume: 0, cumulative_value: 0 }
@@ -712,11 +693,7 @@ export class TransactionService {
 
       if (transactionType === 'PURCHASE' || transactionType === 'OPENING_BALANCE') {
         const dest = getSnap(destinationId)
-        const currentStock = Math.max(0, dest.stock)
-        const newWac = (currentStock + quantity) > 0
-          ? Math.round((currentStock * dest.wac + quantity * unitCost) / (currentStock + quantity))
-          : unitCost
-        dest.wac = newWac
+        dest.wac = CostingEngine.calculateNewWac(dest.stock, dest.wac, quantity, unitCost)
         dest.stock += quantity
         averageCostSnapshot = dest.wac
       } else if (transactionType === 'TRANSFER') {
@@ -725,16 +702,12 @@ export class TransactionService {
         unitCost = src.wac
         averageCostSnapshot = src.wac
         src.stock = src.stock - quantity // Allow negative stock to flow
-        const currentDestStock = Math.max(0, dest.stock)
-        const newDestWac = (currentDestStock + quantity) > 0
-          ? Math.round((currentDestStock * dest.wac + quantity * unitCost) / (currentDestStock + quantity))
-          : unitCost
-        dest.wac = newDestWac
+        dest.wac = CostingEngine.calculateNewWac(dest.stock, dest.wac, quantity, unitCost)
         dest.stock += quantity
       } else if (transactionType === 'SALE') {
         const src = getSnap(sourceId)
         averageCostSnapshot = src.wac
-        profitSnapshot = Math.round(quantity * (tx.sellingRate - averageCostSnapshot))
+        profitSnapshot = CostingEngine.calculateProfit(quantity, tx.sellingRate, averageCostSnapshot)
         src.stock = src.stock - quantity // Allow negative stock to flow
       } else if (transactionType === 'RETURN') {
         if (sourceId !== 'NONE' && sourceType === 'DRIVER') {
@@ -743,11 +716,7 @@ export class TransactionService {
         }
         if (destinationId !== 'NONE' && destinationType === 'DRIVER') {
           const dest = getSnap(destinationId)
-          const currentDestStock = Math.max(0, dest.stock)
-          const newWac = (currentDestStock + quantity) > 0
-            ? Math.round((currentDestStock * dest.wac + quantity * unitCost) / (currentDestStock + quantity))
-            : unitCost
-          dest.wac = newWac
+          dest.wac = CostingEngine.calculateNewWac(dest.stock, dest.wac, quantity, unitCost)
           dest.stock += quantity
           averageCostSnapshot = dest.wac
         }
@@ -761,11 +730,7 @@ export class TransactionService {
           const dest = getSnap(destinationId)
           unitCost = dest.wac
           averageCostSnapshot = dest.wac
-          const currentDestStock = Math.max(0, dest.stock)
-          const newWac = (currentDestStock + quantity) > 0
-            ? Math.round((currentDestStock * dest.wac + quantity * unitCost) / (currentDestStock + quantity))
-            : unitCost
-          dest.wac = newWac
+          dest.wac = CostingEngine.calculateNewWac(dest.stock, dest.wac, quantity, unitCost)
           dest.stock += quantity
         }
       }
@@ -784,7 +749,7 @@ export class TransactionService {
       }
     }
 
-    // 3. Update inventory cache snapshots for all affected locations
+    // 3. Update inventory cache snapshots for all locations in runningState
     const now = new Date().toISOString()
     const upsertInvStmt = sqlite.prepare(`
       INSERT INTO inventory (item, current_stock, weighted_average_cost, last_transaction_id, updated_at)
@@ -811,11 +776,14 @@ export class TransactionService {
       const lastId = lastTx[0]?.id || 'NONE'
       upsertInvStmt.run(item, st.stock, st.wac, lastId, now)
     }
+
+    // Dispatch background Cloud Vault sync (non-blocking)
+    CloudVaultService.syncSnapshot('auto').catch(() => {})
   }
 
-  static async recalculateLedger(): Promise<void> {
+  static async recalculateLedger(fromDate?: string): Promise<void> {
     return runInTransaction(async () => {
-      await this.recalculateLedgerInternal()
+      await this.recalculateLedgerInternal(fromDate)
     })
   }
 

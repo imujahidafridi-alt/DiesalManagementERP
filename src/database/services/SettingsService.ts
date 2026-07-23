@@ -33,6 +33,13 @@ export class SettingsService {
         row_density: 'compact', // compact or comfortable
         font_size: '12px',
         fuel_unit: 'Gal',
+        cloud_vault_enabled: 'false',
+        cloud_vault_provider: 'cloudflare_r2',
+        cloud_vault_endpoint: '',
+        cloud_vault_bucket_name: '',
+        cloud_vault_access_key_id: '',
+        cloud_vault_secret_access_key: '',
+        cloud_vault_region: 'auto',
       }
 
       return {

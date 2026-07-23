@@ -268,6 +268,16 @@ export interface IpcChannelMap {
   'backup:restore': { args: [filePath: string]; return: boolean }
   'backup:getFolder': { args: []; return: string }
   'backup:setFolder': { args: [folder: string]; return: void }
+
+  // Cloud Vault Backup (S3 / Cloudflare R2 Streaming)
+  'cloudVault:getSettings': { args: []; return: import('../database/services/CloudVaultService').CloudVaultConfig }
+  'cloudVault:saveSettings': { args: [config: import('../database/services/CloudVaultService').CloudVaultConfig, user: string]; return: boolean }
+  'cloudVault:testConnection': { args: [config: import('../database/services/CloudVaultService').CloudVaultConfig]; return: { success: boolean; message: string } }
+  'cloudVault:getStatus': { args: []; return: import('../database/services/CloudVaultService').CloudVaultStatus }
+  'cloudVault:syncNow': { args: [manualReason?: string]; return: { success: boolean; key?: string; error?: string } }
+  'cloudVault:listSnapshots': { args: []; return: import('../database/services/CloudVaultService').CloudSnapshotItem[] }
+  'cloudVault:restoreSnapshot': { args: [objectKey: string]; return: boolean }
+
   'db:integrityCheck': { args: []; return: { ok: boolean; issues: string[] } }
   'db:optimize': { args: []; return: boolean }
   'settings:get': { args: []; return: Record<string, string> }
@@ -281,8 +291,6 @@ export interface IpcChannelMap {
   'pin:lockSession': { args: []; return: boolean }
   'pin:unlockSession': { args: []; return: boolean }
   'pin:setInactivityTimeout': { args: [minutes: number, user?: string]; return: boolean }
-  'import:execute': { args: [entityType: string, rows: any[], user: string]; return: { imported: number; skipped: number; failed: number; executionTimeMs: number; errors: string[] } }
-  'import:smartExecute': { args: [records: any[], user: string, autoCreateMasters: boolean]; return: { imported: number; errors: string[] } }
   'app:reboot': { args: []; return: void }
   'app:exportDiagnostics': { args: []; return: string }
   'logger:write': { args: [log: { level: 'info' | 'warn' | 'error' | 'critical'; message: string; errorStack?: string }]; return: void }

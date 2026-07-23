@@ -1,11 +1,28 @@
-import { Sun, Database, User, Search, Lock } from 'lucide-react'
+import { Sun, Database, User, Search, Lock, Cloud } from 'lucide-react'
 import { useAppStore, useUiStore } from '@/store'
 import { useState, useEffect } from 'react'
 
 export default function CustomTitleBar() {
   const { currentOperator, dbConnected } = useAppStore()
-  const { setSearchOpen } = useUiStore()
+  const { setSearchOpen, addToast } = useUiStore()
   const [time, setTime] = useState(new Date())
+  const [syncingCloud, setSyncingCloud] = useState(false)
+
+  const handleQuickCloudBackup = async () => {
+    setSyncingCloud(true)
+    try {
+      const res = await window.api.invoke('cloudVault:syncNow', 'quick_titlebar')
+      if (res.success) {
+        addToast('Cloud backup completed successfully!', 'success')
+      } else {
+        addToast(res.error || 'Cloud backup failed. Please check connection.', 'error')
+      }
+    } catch (err: any) {
+      addToast('Cloud backup failed', 'error')
+    } finally {
+      setSyncingCloud(false)
+    }
+  }
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000)
@@ -70,11 +87,22 @@ export default function CustomTitleBar() {
           <kbd className="bg-slate-900 border border-slate-700 px-1.5 py-0.2 rounded-full ml-1 font-mono text-[7px] text-slate-400 shadow-sm">Ctrl+F</kbd>
         </button>
 
-        {/* DB Connection */}
+        {/* Quick Cloud Vault Backup Button */}
+        <button
+          onClick={handleQuickCloudBackup}
+          disabled={syncingCloud}
+          className="flex items-center gap-1.5 px-3 py-1 bg-blue-950/60 hover:bg-blue-900/80 border border-blue-700/60 hover:border-blue-500 rounded-full text-[9px] text-blue-200 hover:text-white cursor-pointer focus:outline-none transition-all shadow-sm active:scale-95 disabled:opacity-50"
+          title="Backup database to secure cloud storage"
+        >
+          <Cloud size={10} className={syncingCloud ? 'animate-spin text-blue-400' : 'text-blue-400'} />
+          <span className="font-semibold">{syncingCloud ? 'Backing up...' : 'Cloud Backup'}</span>
+        </button>
+
+        {/* System Status Connection */}
         <div className="flex items-center gap-1.5 text-[10px] border-l pl-3.5 border-slate-800">
           <Database size={12} className={dbConnected ? 'text-emerald-400 animate-pulse' : 'text-rose-500'} />
           <span className="text-slate-450 font-bold font-mono">
-            {dbConnected ? 'Connected' : 'Disconnected'}
+            {dbConnected ? 'Online' : 'Offline'}
           </span>
         </div>
 

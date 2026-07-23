@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
-  Upload,
   Info,
   Lock,
 } from 'lucide-react'
@@ -33,7 +32,6 @@ const navItems = [
   { path: '/inventory', label: 'Inventory', icon: Database },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/audit', label: 'Audit Trail', icon: History },
-  { path: '/import', label: 'Data Import', icon: Upload },
   { path: '/settings', label: 'Settings', icon: SettingsIcon },
   { path: '/about', label: 'About', icon: Info },
 ]

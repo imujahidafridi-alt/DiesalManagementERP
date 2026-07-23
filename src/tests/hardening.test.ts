@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { runMigrations } from '../database/migrator'
 import { BackupService } from '../database/services/BackupService'
-import { ImportService } from '../database/services/ImportService'
 import { SettingsService } from '../database/services/SettingsService'
 import { AuditService } from '../database/services/AuditService'
 import { DriverService } from '../database/services/DriverService'
@@ -80,49 +79,7 @@ describe('Production Hardening, Backups, Audits & Data Imports E2E Tests', () =>
   })
 
   // ----------------------------------------------------
-  // 3. EXCEL / CSV DATA MIGRATION IMPORT WIZARD
-  // ----------------------------------------------------
-  describe('Excel Import Wizard & Transactions Rollback', () => {
-    it('should reject invalid import files and roll back changes', async () => {
-      // Mock rows with invalid references and negative volumes
-      const invalidRows = [
-        { name: 'Driver A', phone: '+999' },
-        { name: '', phone: '+888' }, // Validation failure: empty name
-      ]
-
-      const result = await ImportService.importRecords('DRIVER', invalidRows, operator)
-      expect(result.imported).toBe(0)
-      expect(result.failed).toBe(2)
-      expect(result.errors.length).toBeGreaterThan(0)
-
-      // Verify no driver was inserted (E2E transaction rollback!)
-      const list = await DriverService.list()
-      const match = list.find(d => d.phone === '+999')
-      expect(match).toBeUndefined()
-    })
-
-    it('should successfully import valid entities', async () => {
-      const validDrivers = [
-        { name: 'Migration Driver X', phone: '+111222' },
-        { name: 'Migration Driver Y', phone: '+333444' },
-      ]
-
-      const result = await ImportService.importRecords('DRIVER', validDrivers, operator)
-      expect(result.imported).toBe(2)
-      expect(result.errors.length).toBe(0)
-
-      const list = await DriverService.list()
-      const dX = list.find(d => d.name === 'Migration Driver X')
-      const dY = list.find(d => d.name === 'Migration Driver Y')
-      
-      expect(dX).toBeDefined()
-      expect(dY).toBeDefined()
-      expect(dX?.phone).toBe('+111222')
-    })
-  })
-
-  // ----------------------------------------------------
-  // 4. SECURITY AUDIT TRAIL LOGGING
+  // 3. SECURITY AUDIT TRAIL LOGGING
   // ----------------------------------------------------
   describe('Security Auditing', () => {
     it('should capture CRUD triggers and previous/new diff state payloads', async () => {

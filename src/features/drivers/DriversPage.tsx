@@ -76,8 +76,8 @@ export default function DriversPage() {
   const { activeLookupId, setActiveLookupId } = useUiStore()
 
   useEffect(() => {
-    fetchDrivers()
-    fetchInventorySnapshots()
+    fetchDrivers(true)
+    fetchInventorySnapshots(true)
   }, [])
 
   useEffect(() => {
@@ -89,8 +89,6 @@ export default function DriversPage() {
       }
     }
   }, [activeLookupId, drivers])
-
-
 
   // Filtered drivers list
   const filteredDrivers = useMemo(() => {
@@ -106,7 +104,8 @@ export default function DriversPage() {
 
   // --- Actions ---
   const handleRefresh = async () => {
-    await fetchDrivers()
+    await fetchDrivers(true)
+    await fetchInventorySnapshots(true)
     addToast('Driver registry refreshed', 'success')
   }
 
